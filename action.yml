@@ -13,10 +13,18 @@ inputs:
     description: Automatically set up Node and Python toolchains based on detected project types.
     required: false
     default: "true"
+  auto-install:
+    description: Automatically install Node dependencies before running checks when a lockfile strategy can be resolved.
+    required: false
+    default: "true"
   node-version:
     description: Node version to install when Node projects are detected.
     required: false
     default: "24"
+  node-install-command:
+    description: Command to run when automatically installing Node dependencies.
+    required: false
+    default: npm ci
   python-version:
     description: Python version to install when Python projects are detected.
     required: false
@@ -29,6 +37,10 @@ inputs:
     description: Directory to scan for projects.
     required: false
     default: .
+  project-depth:
+    description: Maximum directory depth to search for project manifests. Use 0 for root only, 1 for root plus direct child folders, or -1 for unlimited depth.
+    required: false
+    default: "-1"
   include-root:
     description: Include the working directory itself when it contains a supported manifest.
     required: false
@@ -124,9 +136,12 @@ runs:
       run: node "$GITHUB_ACTION_PATH/dist/index.js"
       env:
         PROJECT_CHECKS_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        PROJECT_CHECKS_AUTO_INSTALL: ${{ inputs.auto-install }}
+        PROJECT_CHECKS_PROJECT_DEPTH: ${{ inputs.project-depth }}
         PROJECT_CHECKS_INCLUDE_ROOT: ${{ inputs.include-root }}
         PROJECT_CHECKS_CHANGED_ONLY: ${{ inputs.changed-only }}
         PROJECT_CHECKS_BASE_REF: ${{ inputs.base-ref }}
         PROJECT_CHECKS_HEAD_REF: ${{ inputs.head-ref }}
+        PROJECT_CHECKS_NODE_INSTALL_COMMAND: ${{ inputs.node-install-command }}
         PROJECT_CHECKS_PYTHON_FORMAT_COMMAND: ${{ inputs.python-format-command }}
         PROJECT_CHECKS_PYTHON_LINT_COMMAND: ${{ inputs.python-lint-command }}

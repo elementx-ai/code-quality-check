@@ -51,16 +51,27 @@ jobs:
           base-ref: ${{ github.event.pull_request.base.sha || github.event.before }}
 ```
 
+Depth control:
+
+- `project-depth: 0` means only the working directory itself is considered
+- `project-depth: 1` means the working directory plus direct child folders
+- `project-depth: -1` means unlimited depth and preserves the current broad discovery behavior
+
 What the action handles internally:
 
 - `actions/checkout@v6`
 - `actions/setup-node@v6` when a `package.json` is detected
 - `actions/setup-python@v6` and `astral-sh/setup-uv@v7` when a `pyproject.toml` is detected
+- automatic Node dependency installation with `npm ci` when a lockfile can be resolved
+
+Node install behavior:
+
+- if the repo root is an npm workspace with a root lockfile, it runs one root `npm ci`
+- otherwise, it runs `npm ci` inside each selected Node project that has its own lockfile
+- if no `package-lock.json` or `npm-shrinkwrap.json` is available for a selected Node project, the action warns and continues
 
 Important constraint:
 
-- this action sets up toolchains, but it does not install project dependencies for you
-- Node projects still need their dependencies available before `npm run lint` or similar scripts can succeed
 - Python projects still need a usable `uv` project configuration
 
 If you want, the next iteration can add an optional install phase with repo-specific heuristics.
@@ -70,7 +81,10 @@ Useful inputs:
 - `checkout`: default `true`
 - `fetch-depth`: default `0`
 - `auto-setup`: default `true`
+- `auto-install`: default `true`
+- `project-depth`: default `-1`
 - `node-version`: default `24`
+- `node-install-command`: default `npm ci`
 - `python-version`: default `3.12`
 - `uv-version`: optional
 - `changed-only`: default `false`

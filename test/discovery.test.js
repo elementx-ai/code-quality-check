@@ -49,6 +49,55 @@ test("discoverProjects finds Node and Python project roots", async () => {
   }
 });
 
+test("discoverProjects respects projectDepth", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-depth-"));
+
+  try {
+    await fs.writeFile(
+      path.join(tempDirectory, "package.json"),
+      JSON.stringify({ scripts: { lint: "eslint ." } }, null, 2)
+    );
+    await fs.mkdir(path.join(tempDirectory, "evaluator"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDirectory, "evaluator", "package.json"),
+      JSON.stringify({ scripts: { test: "vitest" } }, null, 2)
+    );
+    await fs.mkdir(path.join(tempDirectory, "services", "api"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDirectory, "services", "api", "package.json"),
+      JSON.stringify({ scripts: { build: "tsc" } }, null, 2)
+    );
+
+    const rootOnlyProjects = await discoverProjects(tempDirectory, {
+      includeRoot: true,
+      projectDepth: 0
+    });
+    const oneLevelProjects = await discoverProjects(tempDirectory, {
+      includeRoot: true,
+      projectDepth: 1
+    });
+    const unlimitedProjects = await discoverProjects(tempDirectory, {
+      includeRoot: true,
+      projectDepth: -1
+    });
+
+    assert.deepEqual(
+      rootOnlyProjects.map((project) => project.relativePath),
+      ["."]
+    );
+    assert.deepEqual(
+      oneLevelProjects.map((project) => project.relativePath),
+      [".", "evaluator"]
+    );
+    assert.deepEqual(
+      unlimitedProjects.map((project) => project.relativePath),
+      [".", "evaluator", "services/api"]
+    );
+  } finally {
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
 test("detectPythonRuff returns false when Ruff is not referenced", () => {
   assert.equal(
     detectPythonRuff(
