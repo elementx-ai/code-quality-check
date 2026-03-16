@@ -85,6 +85,25 @@ Useful inputs:
 - `project_paths`
 - `selected_project_paths`
 - `detected_ecosystems`
+- `passed_project_paths`
+- `failed_project_paths`
+- `execution_results`
+
+`passed_project_paths` and `failed_project_paths` are JSON arrays, so downstream workflows can query them with `fromJSON(...)`.
+
+Example:
+
+```yaml
+      - id: quality
+        uses: elementx-ai/code-quality-check@main
+        with:
+          changed-only: true
+          base-ref: ${{ github.event.pull_request.base.sha || github.event.before }}
+
+      - name: React to evaluator failure
+        if: ${{ contains(fromJSON(steps.quality.outputs.failed_project_paths), 'evaluator') }}
+        run: echo "evaluator failed quality checks"
+```
 
 ## Local development
 

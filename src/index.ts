@@ -34,6 +34,7 @@ async function main(): Promise<void> {
   core.setOutput("project_count", String(projects.length));
   core.setOutput("project_paths", JSON.stringify(projectPaths));
   core.setOutput("detected_ecosystems", JSON.stringify(detectedEcosystems));
+  setExecutionOutputs([], [], []);
 
   if (projects.length === 0) {
     core.notice("No supported projects were discovered. Nothing to do.");
@@ -63,7 +64,7 @@ async function main(): Promise<void> {
   }
 
   core.info(`Running checks for ${selectedProjects.length} project root(s).`);
-  await runProjects(selectedProjects, {
+  const runSummary = await runProjects(selectedProjects, {
     baseRef,
     changedOnly,
     headRef,
@@ -71,6 +72,17 @@ async function main(): Promise<void> {
     pythonLintCommand,
     workingDirectory
   });
+  setExecutionOutputs(
+    runSummary.passedProjectPaths,
+    runSummary.failedProjectPaths,
+    runSummary.results
+  );
+
+  if (runSummary.failedProjectPaths.length > 0) {
+    core.setFailed(
+      `Checks failed for project(s): ${runSummary.failedProjectPaths.join(", ")}`
+    );
+  }
 }
 
 main().catch((error: unknown) => {
@@ -127,4 +139,14 @@ function parseBoolean(value: string, label: string): boolean {
   }
 
   throw new Error(`Expected ${label} to be true or false, received: ${value}`);
+}
+
+function setExecutionOutputs(
+  passedProjectPaths: string[],
+  failedProjectPaths: string[],
+  executionResults: unknown[]
+): void {
+  core.setOutput("passed_project_paths", JSON.stringify(passedProjectPaths));
+  core.setOutput("failed_project_paths", JSON.stringify(failedProjectPaths));
+  core.setOutput("execution_results", JSON.stringify(executionResults));
 }

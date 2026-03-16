@@ -71,6 +71,15 @@ outputs:
   detected_ecosystems:
     description: JSON array of ecosystems detected across discovered project roots.
     value: ${{ steps.run.outputs.detected_ecosystems }}
+  passed_project_paths:
+    description: JSON array of project roots whose checks completed successfully.
+    value: ${{ steps.run.outputs.passed_project_paths }}
+  failed_project_paths:
+    description: JSON array of project roots whose checks failed.
+    value: ${{ steps.run.outputs.failed_project_paths }}
+  execution_results:
+    description: JSON array of per-project execution results with path, ecosystems, status, and optional error.
+    value: ${{ steps.run.outputs.execution_results }}
 runs:
   using: composite
   steps:

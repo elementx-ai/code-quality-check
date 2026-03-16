@@ -175,6 +175,7 @@ async function main() {
     core.setOutput("project_count", String(projects.length));
     core.setOutput("project_paths", JSON.stringify(projectPaths));
     core.setOutput("detected_ecosystems", JSON.stringify(detectedEcosystems));
+    setExecutionOutputs([], [], []);
     if (projects.length === 0) {
         core.notice("No supported projects were discovered. Nothing to do.");
         core.setOutput("selected_project_count", "0");
@@ -198,7 +199,7 @@ async function main() {
         return;
     }
     core.info(`Running checks for ${selectedProjects.length} project root(s).`);
-    await (0, runner_1.runProjects)(selectedProjects, {
+    const runSummary = await (0, runner_1.runProjects)(selectedProjects, {
         baseRef,
         changedOnly,
         headRef,
@@ -206,6 +207,10 @@ async function main() {
         pythonLintCommand,
         workingDirectory
     });
+    setExecutionOutputs(runSummary.passedProjectPaths, runSummary.failedProjectPaths, runSummary.results);
+    if (runSummary.failedProjectPaths.length > 0) {
+        core.setFailed(`Checks failed for project(s): ${runSummary.failedProjectPaths.join(", ")}`);
+    }
 }
 main().catch((error) => {
     if (error instanceof Error) {
@@ -249,6 +254,11 @@ function parseBoolean(value, label) {
         return false;
     }
     throw new Error(`Expected ${label} to be true or false, received: ${value}`);
+}
+function setExecutionOutputs(passedProjectPaths, failedProjectPaths, executionResults) {
+    core.setOutput("passed_project_paths", JSON.stringify(passedProjectPaths));
+    core.setOutput("failed_project_paths", JSON.stringify(failedProjectPaths));
+    core.setOutput("execution_results", JSON.stringify(executionResults));
 }
 
 
@@ -326,43 +336,68 @@ async function selectProjectsForExecution(projects, inputs) {
         selectedProjects
     };
 }
-async function runProjects(projects, inputs) {
+async function runProjects(projects, inputs, commandExecutor = execCommand) {
+    const results = [];
     for (const project of projects) {
-        const ecosystems = project.targets.map((target) => target.ecosystem).join(", ");
-        core.startGroup(`Running checks for ${project.relativePath} [${ecosystems}]`);
+        const ecosystems = project.targets.map((target) => target.ecosystem);
+        core.startGroup(`Running checks for ${project.relativePath} [${ecosystems.join(", ")}]`);
         try {
             for (const target of project.targets) {
                 if (target.ecosystem === "node") {
-                    await runNodeTarget(project.relativePath, project.rootPath, target.metadata);
+                    await runNodeTarget(project.relativePath, project.rootPath, target.metadata, commandExecutor);
                     continue;
                 }
-                await runPythonTarget(project.relativePath, project.rootPath, target.metadata, inputs);
+                await runPythonTarget(project.relativePath, project.rootPath, target.metadata, inputs, commandExecutor);
             }
+            results.push({
+                ecosystems,
+                path: project.relativePath,
+                status: "passed"
+            });
+        }
+        catch (error) {
+            const message = formatError(error);
+            core.error(`${project.relativePath}: ${message}`);
+            results.push({
+                ecosystems,
+                error: message,
+                path: project.relativePath,
+                status: "failed"
+            });
         }
         finally {
             core.endGroup();
         }
     }
+    return {
+        failedProjectPaths: results
+            .filter((result) => result.status === "failed")
+            .map((result) => result.path),
+        passedProjectPaths: results
+            .filter((result) => result.status === "passed")
+            .map((result) => result.path),
+        results
+    };
 }
-async function runNodeTarget(relativePath, rootPath, metadata) {
+async function runNodeTarget(relativePath, rootPath, metadata, commandExecutor) {
     for (const scriptName of NODE_SCRIPT_ORDER) {
         if (!(scriptName in metadata.scripts)) {
             core.warning(`${relativePath}: skipping npm run ${scriptName} because the script is not defined.`);
             continue;
         }
         core.info(`${relativePath}: npm run ${scriptName}`);
-        await execCommand("npm", ["run", scriptName], rootPath);
+        await commandExecutor("npm", ["run", scriptName], rootPath);
     }
 }
-async function runPythonTarget(relativePath, rootPath, metadata, inputs) {
+async function runPythonTarget(relativePath, rootPath, metadata, inputs, commandExecutor) {
     if (!metadata.hasRuff) {
         core.warning(`${relativePath}: skipping Python checks because pyproject.toml does not appear to configure or depend on Ruff.`);
         return;
     }
     core.info(`${relativePath}: ${inputs.pythonFormatCommand}`);
-    await execConfiguredCommand(inputs.pythonFormatCommand, rootPath);
+    await execConfiguredCommand(inputs.pythonFormatCommand, rootPath, commandExecutor);
     core.info(`${relativePath}: ${inputs.pythonLintCommand}`);
-    await execConfiguredCommand(inputs.pythonLintCommand, rootPath);
+    await execConfiguredCommand(inputs.pythonLintCommand, rootPath, commandExecutor);
 }
 async function resolveGitRoot(workingDirectory) {
     let stdout = "";
@@ -423,9 +458,9 @@ async function execCommand(commandLine, args, cwd, options) {
         throw new Error(`Command failed with exit code ${result}: ${[commandLine, ...args].join(" ")}`);
     }
 }
-async function execConfiguredCommand(commandLine, cwd) {
+async function execConfiguredCommand(commandLine, cwd, commandExecutor) {
     const [tool, ...args] = splitCommandLine(commandLine);
-    await execCommand(tool, args, cwd);
+    await commandExecutor(tool, args, cwd);
 }
 function splitCommandLine(commandLine) {
     const tokens = [];
@@ -474,6 +509,12 @@ function splitCommandLine(commandLine) {
         throw new Error("Configured command was empty.");
     }
     return tokens;
+}
+function formatError(error) {
+    if (error instanceof Error) {
+        return error.message;
+    }
+    return String(error);
 }
 
 
