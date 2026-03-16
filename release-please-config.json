@@ -3,7 +3,7 @@
   "packages": {
     ".": {
       "release-type": "node",
-      "component": "ga-setup"
+      "component": "code-quality-check"
     }
   }
 }
