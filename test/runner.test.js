@@ -4,7 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
-const { runProjects } = require("../lib/runner.js");
+const { runProjects, selectProjectsForExecution } = require("../lib/runner.js");
 
 test("runProjects returns passed and failed project paths", async () => {
   const calls = [];
@@ -216,3 +216,122 @@ test("runProjects skips auto-install for node projects with no runnable scripts"
     await fs.rm(tempDirectory, { recursive: true, force: true });
   }
 });
+
+test("selectProjectsForExecution uses merge-base for pull requests", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-pr-diff-"));
+  const previousEventName = process.env.GITHUB_EVENT_NAME;
+
+  try {
+    await fs.mkdir(path.join(tempDirectory, "evaluator"), { recursive: true });
+    await fs.mkdir(path.join(tempDirectory, ".github", "workflows"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDirectory, "evaluator", "package.json"),
+      JSON.stringify({ scripts: { lint: "eslint ." } }, null, 2)
+    );
+
+    await runGit(tempDirectory, ["init", "-b", "main"]);
+    await runGit(tempDirectory, ["config", "user.name", "Test User"]);
+    await runGit(tempDirectory, ["config", "user.email", "test@example.com"]);
+    await runGit(tempDirectory, ["config", "commit.gpgsign", "false"]);
+    await runGit(tempDirectory, ["add", "."]);
+    await runGit(tempDirectory, ["commit", "-m", "base"]);
+    await runGit(tempDirectory, ["checkout", "-b", "feature/pr-only-workflow"]);
+
+    await runGit(tempDirectory, ["checkout", "main"]);
+    await fs.writeFile(path.join(tempDirectory, "evaluator", "index.ts"), "export const x = 1;\n");
+    await runGit(tempDirectory, ["add", "."]);
+    await runGit(tempDirectory, ["commit", "-m", "main changes evaluator"]);
+
+    await runGit(tempDirectory, ["checkout", "feature/pr-only-workflow"]);
+    await fs.writeFile(
+      path.join(tempDirectory, ".github", "workflows", "ci.yml"),
+      "name: ci\n"
+    );
+    await runGit(tempDirectory, ["add", "."]);
+    await runGit(tempDirectory, ["commit", "-m", "workflow only"]);
+
+    process.env.GITHUB_EVENT_NAME = "pull_request";
+
+    const summary = await selectProjectsForExecution(
+      [
+        {
+          rootPath: path.join(tempDirectory, "evaluator"),
+          relativePath: "evaluator",
+          targets: [
+            {
+              ecosystem: "node",
+              manifestPath: path.join(tempDirectory, "evaluator", "package.json"),
+              metadata: {
+                scripts: {
+                  lint: "eslint ."
+                }
+              }
+            }
+          ]
+        }
+      ],
+      {
+        autoInstall: false,
+        baseRef: "main",
+        changedOnly: true,
+        headRef: "HEAD",
+        nodeInstallCommand: "npm ci",
+        pythonFormatCommand: "uv run ruff format --check .",
+        pythonLintCommand: "uv run ruff check .",
+        workingDirectory: tempDirectory
+      }
+    );
+
+    assert.deepEqual(summary.changedFiles, [".github/workflows/ci.yml"]);
+    assert.deepEqual(summary.selectedProjects, []);
+  } finally {
+    if (previousEventName === undefined) {
+      delete process.env.GITHUB_EVENT_NAME;
+    } else {
+      process.env.GITHUB_EVENT_NAME = previousEventName;
+    }
+
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("selectProjectsForExecution surfaces actionable merge-base errors", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-pr-error-"));
+  const previousEventName = process.env.GITHUB_EVENT_NAME;
+
+  try {
+    await runGit(tempDirectory, ["init", "-b", "main"]);
+    process.env.GITHUB_EVENT_NAME = "pull_request";
+
+    await assert.rejects(
+      () =>
+        selectProjectsForExecution([], {
+          autoInstall: false,
+          baseRef: "missing-base-ref",
+          changedOnly: true,
+          headRef: "HEAD",
+          nodeInstallCommand: "npm ci",
+          pythonFormatCommand: "uv run ruff format --check .",
+          pythonLintCommand: "uv run ruff check .",
+          workingDirectory: tempDirectory
+        }),
+      /Ensure both refs are present in the local checkout\. Use fetch-depth: 0/
+    );
+  } finally {
+    if (previousEventName === undefined) {
+      delete process.env.GITHUB_EVENT_NAME;
+    } else {
+      process.env.GITHUB_EVENT_NAME = previousEventName;
+    }
+
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+async function runGit(cwd, args) {
+  const { execFile } = require("node:child_process");
+  const { promisify } = require("node:util");
+  const execFileAsync = promisify(execFile);
+
+  await execFileAsync("git", args, { cwd });
+}
