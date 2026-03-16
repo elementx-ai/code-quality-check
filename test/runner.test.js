@@ -169,3 +169,50 @@ test("runProjects installs workspace dependencies once from the root", async () 
     await fs.rm(tempDirectory, { recursive: true, force: true });
   }
 });
+
+test("runProjects skips auto-install for node projects with no runnable scripts", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-no-install-"));
+  const calls = [];
+
+  try {
+    await fs.writeFile(path.join(tempDirectory, "package-lock.json"), "{}");
+
+    async function commandExecutor(commandLine, args, cwd) {
+      calls.push({ args, commandLine, cwd });
+    }
+
+    const summary = await runProjects(
+      [
+        {
+          rootPath: tempDirectory,
+          relativePath: ".",
+          targets: [
+            {
+              ecosystem: "node",
+              manifestPath: path.join(tempDirectory, "package.json"),
+              metadata: {
+                scripts: {}
+              }
+            }
+          ]
+        }
+      ],
+      {
+        autoInstall: true,
+        changedOnly: false,
+        headRef: "HEAD",
+        nodeInstallCommand: "npm ci",
+        pythonFormatCommand: "uv run ruff format --check .",
+        pythonLintCommand: "uv run ruff check .",
+        workingDirectory: tempDirectory
+      },
+      commandExecutor
+    );
+
+    assert.deepEqual(summary.passedProjectPaths, ["."]);
+    assert.deepEqual(summary.failedProjectPaths, []);
+    assert.deepEqual(calls, []);
+  } finally {
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});

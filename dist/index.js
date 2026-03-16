@@ -421,7 +421,7 @@ async function installNodeDependencies(projects, inputs, commandExecutor) {
     if (!inputs.autoInstall) {
         return new Map();
     }
-    const nodeProjects = projects.filter((project) => project.targets.some((target) => target.ecosystem === "node"));
+    const nodeProjects = projects.filter(projectHasRunnableNodeTarget);
     if (nodeProjects.length === 0) {
         return new Map();
     }
@@ -469,6 +469,15 @@ async function resolveNodeInstallSteps(nodeProjects, workingDirectory) {
         core.warning(`${project.relativePath}: skipping automatic npm install because no package-lock.json or npm-shrinkwrap.json was found.`);
     }
     return steps;
+}
+function projectHasRunnableNodeTarget(project) {
+    return project.targets.some((target) => {
+        if (target.ecosystem !== "node") {
+            return false;
+        }
+        const metadata = target.metadata;
+        return NODE_SCRIPT_ORDER.some((scriptName) => scriptName in metadata.scripts);
+    });
 }
 async function runNodeTarget(relativePath, rootPath, metadata, commandExecutor) {
     for (const scriptName of NODE_SCRIPT_ORDER) {

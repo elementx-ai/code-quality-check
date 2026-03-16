@@ -169,9 +169,7 @@ async function installNodeDependencies(
     return new Map();
   }
 
-  const nodeProjects = projects.filter((project) =>
-    project.targets.some((target) => target.ecosystem === "node")
-  );
+  const nodeProjects = projects.filter(projectHasRunnableNodeTarget);
   if (nodeProjects.length === 0) {
     return new Map();
   }
@@ -232,6 +230,17 @@ async function resolveNodeInstallSteps(
   }
 
   return steps;
+}
+
+function projectHasRunnableNodeTarget(project: Project): boolean {
+  return project.targets.some((target) => {
+    if (target.ecosystem !== "node") {
+      return false;
+    }
+
+    const metadata = target.metadata as NodeTargetMetadata;
+    return NODE_SCRIPT_ORDER.some((scriptName) => scriptName in metadata.scripts);
+  });
 }
 
 async function runNodeTarget(
