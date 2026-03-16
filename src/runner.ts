@@ -337,12 +337,21 @@ async function resolveMergeBase(
 ): Promise<string> {
   let stdout = "";
 
-  await execCommand("git", ["merge-base", baseRef, headRef], gitRoot, {
-    silent: true,
-    stdout: (data) => {
-      stdout += data.toString();
-    }
-  });
+  try {
+    await execCommand("git", ["merge-base", baseRef, headRef], gitRoot, {
+      silent: true,
+      stdout: (data) => {
+        stdout += data.toString();
+      }
+    });
+  } catch (error: unknown) {
+    const message = formatError(error);
+    throw new Error(
+      `Unable to resolve a merge-base for pull request change detection between ${baseRef} and ${headRef}. ` +
+        `Ensure both refs are present in the local checkout. Use fetch-depth: 0, and if running under pull_request_target ` +
+        `make sure HEAD is the pull request head commit rather than the base branch. Original error: ${message}`
+    );
+  }
 
   return stdout.trim();
 }

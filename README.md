@@ -14,6 +14,8 @@ Behavior:
 - Optional changed-only mode: limits execution to project roots with changed files
   - on pull requests, changed files are calculated from the git merge-base to avoid selecting projects changed only on the base branch
   - on pushes, changed files are calculated from the previous pushed commit to `HEAD`
+  - changed-only requires both comparison refs to exist in the local checkout, so keep `fetch-depth: 0`
+  - for `pull_request_target`, `HEAD` is usually the base branch unless you explicitly check out the pull request head commit
 
 Node checks:
 
@@ -51,6 +53,21 @@ jobs:
         with:
           changed-only: true
           base-ref: ${{ github.event.pull_request.base.sha || github.event.before }}
+```
+
+If you use `pull_request_target`, do your own checkout first so `HEAD` points at the PR head commit:
+
+```yaml
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: elementx-ai/code-quality-check@main
+        with:
+          checkout: false
+          changed-only: true
+          base-ref: ${{ github.event.pull_request.base.sha }}
 ```
 
 Depth control:

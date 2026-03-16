@@ -295,6 +295,39 @@ test("selectProjectsForExecution uses merge-base for pull requests", async () =>
   }
 });
 
+test("selectProjectsForExecution surfaces actionable merge-base errors", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-pr-error-"));
+  const previousEventName = process.env.GITHUB_EVENT_NAME;
+
+  try {
+    await runGit(tempDirectory, ["init", "-b", "main"]);
+    process.env.GITHUB_EVENT_NAME = "pull_request";
+
+    await assert.rejects(
+      () =>
+        selectProjectsForExecution([], {
+          autoInstall: false,
+          baseRef: "missing-base-ref",
+          changedOnly: true,
+          headRef: "HEAD",
+          nodeInstallCommand: "npm ci",
+          pythonFormatCommand: "uv run ruff format --check .",
+          pythonLintCommand: "uv run ruff check .",
+          workingDirectory: tempDirectory
+        }),
+      /Ensure both refs are present in the local checkout\. Use fetch-depth: 0/
+    );
+  } finally {
+    if (previousEventName === undefined) {
+      delete process.env.GITHUB_EVENT_NAME;
+    } else {
+      process.env.GITHUB_EVENT_NAME = previousEventName;
+    }
+
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
 async function runGit(cwd, args) {
   const { execFile } = require("node:child_process");
   const { promisify } = require("node:util");
