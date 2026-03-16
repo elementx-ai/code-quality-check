@@ -45,7 +45,7 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: elementx-ai/code-quality-check@v0.2.0
+      - uses: elementx-ai/code-quality-check@main
         with:
           changed-only: true
           base-ref: ${{ github.event.pull_request.base.sha || github.event.before }}
