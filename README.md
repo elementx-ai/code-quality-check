@@ -12,6 +12,8 @@ Behavior:
 - Single-project repo: runs checks for the one discovered project
 - Multi-project repo: runs checks for every discovered project root
 - Optional changed-only mode: limits execution to project roots with changed files
+  - on pull requests, changed files are calculated from the git merge-base to avoid selecting projects changed only on the base branch
+  - on pushes, changed files are calculated from the previous pushed commit to `HEAD`
 
 Node checks:
 

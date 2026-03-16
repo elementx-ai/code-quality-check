@@ -73,17 +73,32 @@ export async function selectProjectsForExecution(
   }
 
   const gitRoot = await resolveGitRoot(inputs.workingDirectory);
-  const changedFiles = await resolveChangedFiles(gitRoot, baseRef, inputs.headRef);
+  const diffBase = await resolveDiffBase(gitRoot, baseRef, inputs.headRef);
+  const changedFiles = await resolveChangedFiles(gitRoot, diffBase, inputs.headRef);
   const selectedProjects = filterProjectsByChanges(projects, gitRoot, changedFiles);
 
   core.info(
-    `Resolved ${changedFiles.length} changed file(s) between ${baseRef} and ${inputs.headRef}.`
+    `Resolved ${changedFiles.length} changed file(s) between ${diffBase} and ${inputs.headRef}.`
   );
 
   return {
     changedFiles,
     selectedProjects
   };
+}
+
+async function resolveDiffBase(
+  gitRoot: string,
+  baseRef: string,
+  headRef: string
+): Promise<string> {
+  if (!isPullRequestEvent()) {
+    return baseRef;
+  }
+
+  const mergeBase = await resolveMergeBase(gitRoot, baseRef, headRef);
+  core.info(`Using merge-base ${mergeBase} for pull request change detection.`);
+  return mergeBase;
 }
 
 export async function runProjects(
@@ -315,6 +330,23 @@ async function resolveChangedFiles(
     .map((line) => line.split(path.sep).join(path.posix.sep));
 }
 
+async function resolveMergeBase(
+  gitRoot: string,
+  baseRef: string,
+  headRef: string
+): Promise<string> {
+  let stdout = "";
+
+  await execCommand("git", ["merge-base", baseRef, headRef], gitRoot, {
+    silent: true,
+    stdout: (data) => {
+      stdout += data.toString();
+    }
+  });
+
+  return stdout.trim();
+}
+
 function filterProjectsByChanges(
   projects: Project[],
   gitRoot: string,
@@ -345,6 +377,11 @@ function findDefaultBaseRef(): string | undefined {
   }
 
   return undefined;
+}
+
+function isPullRequestEvent(): boolean {
+  const eventName = process.env.GITHUB_EVENT_NAME;
+  return eventName === "pull_request" || eventName === "pull_request_target";
 }
 
 interface ExecOptions {

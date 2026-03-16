@@ -354,13 +354,22 @@ async function selectProjectsForExecution(projects, inputs) {
         };
     }
     const gitRoot = await resolveGitRoot(inputs.workingDirectory);
-    const changedFiles = await resolveChangedFiles(gitRoot, baseRef, inputs.headRef);
+    const diffBase = await resolveDiffBase(gitRoot, baseRef, inputs.headRef);
+    const changedFiles = await resolveChangedFiles(gitRoot, diffBase, inputs.headRef);
     const selectedProjects = filterProjectsByChanges(projects, gitRoot, changedFiles);
-    core.info(`Resolved ${changedFiles.length} changed file(s) between ${baseRef} and ${inputs.headRef}.`);
+    core.info(`Resolved ${changedFiles.length} changed file(s) between ${diffBase} and ${inputs.headRef}.`);
     return {
         changedFiles,
         selectedProjects
     };
+}
+async function resolveDiffBase(gitRoot, baseRef, headRef) {
+    if (!isPullRequestEvent()) {
+        return baseRef;
+    }
+    const mergeBase = await resolveMergeBase(gitRoot, baseRef, headRef);
+    core.info(`Using merge-base ${mergeBase} for pull request change detection.`);
+    return mergeBase;
 }
 async function runProjects(projects, inputs, commandExecutor = execCommand) {
     const installFailures = await installNodeDependencies(projects, inputs, commandExecutor);
@@ -523,6 +532,16 @@ async function resolveChangedFiles(gitRoot, baseRef, headRef) {
         .filter(Boolean)
         .map((line) => line.split(node_path_1.default.sep).join(node_path_1.default.posix.sep));
 }
+async function resolveMergeBase(gitRoot, baseRef, headRef) {
+    let stdout = "";
+    await execCommand("git", ["merge-base", baseRef, headRef], gitRoot, {
+        silent: true,
+        stdout: (data) => {
+            stdout += data.toString();
+        }
+    });
+    return stdout.trim();
+}
 function filterProjectsByChanges(projects, gitRoot, changedFiles) {
     return projects.filter((project) => {
         const relativeToGitRoot = node_path_1.default
@@ -542,6 +561,10 @@ function findDefaultBaseRef() {
         return githubEventBefore;
     }
     return undefined;
+}
+function isPullRequestEvent() {
+    const eventName = process.env.GITHUB_EVENT_NAME;
+    return eventName === "pull_request" || eventName === "pull_request_target";
 }
 async function execCommand(commandLine, args, cwd, options) {
     const result = await exec.exec(commandLine, args, {
