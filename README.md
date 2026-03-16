@@ -13,6 +13,7 @@ Behavior:
 - Multi-project repo: runs checks for every discovered project root
 - Optional changed-only mode: limits execution to project roots with changed files
   - on pull requests, changed files are calculated from the git merge-base to avoid selecting projects changed only on the base branch
+  - on pull requests, the action checks out `github.event.pull_request.head.sha` itself so `HEAD` is the actual PR head commit instead of GitHub's synthetic merge ref
   - on pushes, changed files are calculated from the previous pushed commit to `HEAD`
   - changed-only requires both comparison refs to exist in the local checkout, so keep `fetch-depth: 0`
   - for `pull_request_target`, `HEAD` is usually the base branch unless you explicitly check out the pull request head commit

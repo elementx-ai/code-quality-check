@@ -95,8 +95,16 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Checkout pull request head
+      if: ${{ inputs.checkout == 'true' && github.event_name == 'pull_request' }}
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: ${{ inputs.fetch-depth }}
+        repository: ${{ github.event.pull_request.head.repo.full_name }}
+        ref: ${{ github.event.pull_request.head.sha }}
+
     - name: Checkout
-      if: ${{ inputs.checkout == 'true' }}
+      if: ${{ inputs.checkout == 'true' && github.event_name != 'pull_request' }}
       uses: actions/checkout@v6
       with:
         fetch-depth: ${{ inputs.fetch-depth }}
