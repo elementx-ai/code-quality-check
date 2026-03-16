@@ -1,5 +1,5 @@
 {
-  "name": "ga-setup",
+  "name": "code-quality-check",
   "version": "0.2.0",
   "private": true,
   "description": "Reusable GitHub Action for discovering runnable projects and executing standard checks.",

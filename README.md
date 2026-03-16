@@ -45,7 +45,7 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: your-org/ga-setup@v0.1.0
+      - uses: elementx-ai/code-quality-check@v0.2.0
         with:
           changed-only: true
           base-ref: ${{ github.event.pull_request.base.sha || github.event.before }}
