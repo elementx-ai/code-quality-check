@@ -6,10 +6,17 @@ import { runProjects, selectProjectsForExecution } from "./runner";
 
 async function main(): Promise<void> {
   const workingDirectory = path.resolve(readStringInput("working-directory", "PROJECT_CHECKS_WORKING_DIRECTORY", "."));
+  const autoInstall = readBooleanInput("auto-install", "PROJECT_CHECKS_AUTO_INSTALL", true);
   const includeRoot = readBooleanInput("include-root", "PROJECT_CHECKS_INCLUDE_ROOT", true);
+  const projectDepth = readDepthInput("project-depth", "PROJECT_CHECKS_PROJECT_DEPTH");
   const changedOnly = readBooleanInput("changed-only", "PROJECT_CHECKS_CHANGED_ONLY", false);
   const baseRef = readOptionalStringInput("base-ref", "PROJECT_CHECKS_BASE_REF");
   const headRef = readStringInput("head-ref", "PROJECT_CHECKS_HEAD_REF", "HEAD");
+  const nodeInstallCommand = readStringInput(
+    "node-install-command",
+    "PROJECT_CHECKS_NODE_INSTALL_COMMAND",
+    "npm ci"
+  );
   const pythonFormatCommand = readStringInput(
     "python-format-command",
     "PROJECT_CHECKS_PYTHON_FORMAT_COMMAND",
@@ -23,7 +30,7 @@ async function main(): Promise<void> {
 
   core.info(`Scanning ${workingDirectory} for supported projects.`);
 
-  const projects = await discoverProjects(workingDirectory, { includeRoot });
+  const projects = await discoverProjects(workingDirectory, { includeRoot, projectDepth });
   const repoMode = detectRepoMode(projects);
   const projectPaths = projects.map((project) => project.relativePath);
   const detectedEcosystems = Array.from(
@@ -46,9 +53,11 @@ async function main(): Promise<void> {
   core.info(`Discovered ${projects.length} project root(s): ${projectPaths.join(", ")}`);
 
   const { selectedProjects } = await selectProjectsForExecution(projects, {
+    autoInstall,
     baseRef,
     changedOnly,
     headRef,
+    nodeInstallCommand,
     pythonFormatCommand,
     pythonLintCommand,
     workingDirectory
@@ -65,9 +74,11 @@ async function main(): Promise<void> {
 
   core.info(`Running checks for ${selectedProjects.length} project root(s).`);
   const runSummary = await runProjects(selectedProjects, {
+    autoInstall,
     baseRef,
     changedOnly,
     headRef,
+    nodeInstallCommand,
     pythonFormatCommand,
     pythonLintCommand,
     workingDirectory
@@ -139,6 +150,21 @@ function parseBoolean(value: string, label: string): boolean {
   }
 
   throw new Error(`Expected ${label} to be true or false, received: ${value}`);
+}
+
+function readDepthInput(name: string, envName: string): number | undefined {
+  const value = readStringInput(name, envName, "-1").trim();
+  const parsed = Number.parseInt(value, 10);
+
+  if (Number.isNaN(parsed) || String(parsed) !== value) {
+    throw new Error(`Expected ${name} to be an integer, received: ${value}`);
+  }
+
+  if (parsed < -1) {
+    throw new Error(`Expected ${name} to be -1 or greater, received: ${value}`);
+  }
+
+  return parsed === -1 ? undefined : parsed;
 }
 
 function setExecutionOutputs(

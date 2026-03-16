@@ -1,5 +1,6 @@
 import * as core from "@actions/core";
 import * as exec from "@actions/exec";
+import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { Ecosystem, NodeTargetMetadata, Project, PythonTargetMetadata } from "./types";
@@ -7,9 +8,11 @@ import { Ecosystem, NodeTargetMetadata, Project, PythonTargetMetadata } from "./
 const NODE_SCRIPT_ORDER = ["format", "lint", "test", "build"] as const;
 
 export interface RunnerInputs {
+  autoInstall: boolean;
   baseRef?: string;
   changedOnly: boolean;
   headRef: string;
+  nodeInstallCommand: string;
   pythonFormatCommand: string;
   pythonLintCommand: string;
   workingDirectory: string;
@@ -39,6 +42,12 @@ type CommandExecutor = (
   cwd: string,
   options?: ExecOptions
 ) => Promise<void>;
+
+interface NodeInstallStep {
+  coveredProjectPaths: string[];
+  installPath: string;
+  label: string;
+}
 
 export async function selectProjectsForExecution(
   projects: Project[],
@@ -82,9 +91,22 @@ export async function runProjects(
   inputs: RunnerInputs,
   commandExecutor: CommandExecutor = execCommand
 ): Promise<RunProjectsSummary> {
+  const installFailures = await installNodeDependencies(projects, inputs, commandExecutor);
   const results: ProjectExecutionResult[] = [];
 
   for (const project of projects) {
+    const installFailure = installFailures.get(project.relativePath);
+    if (installFailure) {
+      core.error(`${project.relativePath}: ${installFailure}`);
+      results.push({
+        ecosystems: project.targets.map((target) => target.ecosystem),
+        error: installFailure,
+        path: project.relativePath,
+        status: "failed"
+      });
+      continue;
+    }
+
     const ecosystems = project.targets.map((target) => target.ecosystem);
     core.startGroup(`Running checks for ${project.relativePath} [${ecosystems.join(", ")}]`);
 
@@ -136,6 +158,89 @@ export async function runProjects(
       .map((result) => result.path),
     results
   };
+}
+
+async function installNodeDependencies(
+  projects: Project[],
+  inputs: RunnerInputs,
+  commandExecutor: CommandExecutor
+): Promise<Map<string, string>> {
+  if (!inputs.autoInstall) {
+    return new Map();
+  }
+
+  const nodeProjects = projects.filter(projectHasRunnableNodeTarget);
+  if (nodeProjects.length === 0) {
+    return new Map();
+  }
+
+  const steps = await resolveNodeInstallSteps(nodeProjects, inputs.workingDirectory);
+  const failures = new Map<string, string>();
+
+  for (const step of steps) {
+    core.startGroup(`Installing Node dependencies for ${step.label}`);
+
+    try {
+      core.info(`${step.label}: ${inputs.nodeInstallCommand}`);
+      await execConfiguredCommand(inputs.nodeInstallCommand, step.installPath, commandExecutor);
+    } catch (error: unknown) {
+      const message = `Dependency install failed: ${formatError(error)}`;
+      core.error(`${step.label}: ${message}`);
+
+      for (const projectPath of step.coveredProjectPaths) {
+        failures.set(projectPath, message);
+      }
+    } finally {
+      core.endGroup();
+    }
+  }
+
+  return failures;
+}
+
+async function resolveNodeInstallSteps(
+  nodeProjects: Project[],
+  workingDirectory: string
+): Promise<NodeInstallStep[]> {
+  if (await shouldUseRootWorkspaceInstall(workingDirectory)) {
+    return [
+      {
+        coveredProjectPaths: nodeProjects.map((project) => project.relativePath),
+        installPath: workingDirectory,
+        label: "."
+      }
+    ];
+  }
+
+  const steps: NodeInstallStep[] = [];
+
+  for (const project of nodeProjects) {
+    if (await hasNodeLockfile(project.rootPath)) {
+      steps.push({
+        coveredProjectPaths: [project.relativePath],
+        installPath: project.rootPath,
+        label: project.relativePath
+      });
+      continue;
+    }
+
+    core.warning(
+      `${project.relativePath}: skipping automatic npm install because no package-lock.json or npm-shrinkwrap.json was found.`
+    );
+  }
+
+  return steps;
+}
+
+function projectHasRunnableNodeTarget(project: Project): boolean {
+  return project.targets.some((target) => {
+    if (target.ecosystem !== "node") {
+      return false;
+    }
+
+    const metadata = target.metadata as NodeTargetMetadata;
+    return NODE_SCRIPT_ORDER.some((scriptName) => scriptName in metadata.scripts);
+  });
 }
 
 async function runNodeTarget(
@@ -344,4 +449,41 @@ function formatError(error: unknown): string {
   }
 
   return String(error);
+}
+
+async function shouldUseRootWorkspaceInstall(workingDirectory: string): Promise<boolean> {
+  const packageJsonPath = path.join(workingDirectory, "package.json");
+  if (!(await pathExists(packageJsonPath)) || !(await hasNodeLockfile(workingDirectory))) {
+    return false;
+  }
+
+  const packageJson = JSON.parse(await fs.readFile(packageJsonPath, "utf8")) as {
+    workspaces?: string[] | { packages?: string[] };
+  };
+
+  return hasWorkspaces(packageJson.workspaces);
+}
+
+function hasWorkspaces(workspaces: string[] | { packages?: string[] } | undefined): boolean {
+  if (Array.isArray(workspaces)) {
+    return workspaces.length > 0;
+  }
+
+  return Array.isArray(workspaces?.packages) && workspaces.packages.length > 0;
+}
+
+async function hasNodeLockfile(directory: string): Promise<boolean> {
+  return (
+    (await pathExists(path.join(directory, "package-lock.json"))) ||
+    (await pathExists(path.join(directory, "npm-shrinkwrap.json")))
+  );
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }

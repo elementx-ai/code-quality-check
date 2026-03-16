@@ -22,6 +22,7 @@ const IGNORED_DIRECTORIES = new Set([
 
 interface DiscoverOptions {
   includeRoot: boolean;
+  projectDepth?: number;
 }
 
 export async function discoverProjects(
@@ -29,13 +30,18 @@ export async function discoverProjects(
   options: DiscoverOptions
 ): Promise<Project[]> {
   const discovered = new Map<string, Project>();
+  const maxDepth =
+    options.projectDepth === undefined || options.projectDepth < 0
+      ? undefined
+      : options.projectDepth;
 
-  async function walk(currentDirectory: string): Promise<void> {
+  async function walk(currentDirectory: string, depth: number): Promise<void> {
     const entries = await fs.readdir(currentDirectory, { withFileTypes: true });
     const entryNames = new Set(entries.map((entry) => entry.name));
     const isRoot = path.resolve(currentDirectory) === path.resolve(workingDirectory);
+    const withinDepth = maxDepth === undefined || depth <= maxDepth;
 
-    if (!(isRoot && !options.includeRoot)) {
+    if (withinDepth && !(isRoot && !options.includeRoot)) {
       if (entryNames.has("package.json")) {
         const manifestPath = path.join(currentDirectory, "package.json");
         const packageJson = JSON.parse(await fs.readFile(manifestPath, "utf8")) as {
@@ -65,6 +71,10 @@ export async function discoverProjects(
       }
     }
 
+    if (maxDepth !== undefined && depth >= maxDepth) {
+      return;
+    }
+
     for (const entry of entries) {
       if (!entry.isDirectory()) {
         continue;
@@ -74,11 +84,11 @@ export async function discoverProjects(
         continue;
       }
 
-      await walk(path.join(currentDirectory, entry.name));
+      await walk(path.join(currentDirectory, entry.name), depth + 1);
     }
   }
 
-  await walk(workingDirectory);
+  await walk(workingDirectory, 0);
 
   return Array.from(discovered.values()).sort((left, right) =>
     left.relativePath.localeCompare(right.relativePath)

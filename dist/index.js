@@ -33,11 +33,15 @@ const IGNORED_DIRECTORIES = new Set([
 ]);
 async function discoverProjects(workingDirectory, options) {
     const discovered = new Map();
-    async function walk(currentDirectory) {
+    const maxDepth = options.projectDepth === undefined || options.projectDepth < 0
+        ? undefined
+        : options.projectDepth;
+    async function walk(currentDirectory, depth) {
         const entries = await node_fs_1.promises.readdir(currentDirectory, { withFileTypes: true });
         const entryNames = new Set(entries.map((entry) => entry.name));
         const isRoot = node_path_1.default.resolve(currentDirectory) === node_path_1.default.resolve(workingDirectory);
-        if (!(isRoot && !options.includeRoot)) {
+        const withinDepth = maxDepth === undefined || depth <= maxDepth;
+        if (withinDepth && !(isRoot && !options.includeRoot)) {
             if (entryNames.has("package.json")) {
                 const manifestPath = node_path_1.default.join(currentDirectory, "package.json");
                 const packageJson = JSON.parse(await node_fs_1.promises.readFile(manifestPath, "utf8"));
@@ -61,6 +65,9 @@ async function discoverProjects(workingDirectory, options) {
                 });
             }
         }
+        if (maxDepth !== undefined && depth >= maxDepth) {
+            return;
+        }
         for (const entry of entries) {
             if (!entry.isDirectory()) {
                 continue;
@@ -68,10 +75,10 @@ async function discoverProjects(workingDirectory, options) {
             if (IGNORED_DIRECTORIES.has(entry.name)) {
                 continue;
             }
-            await walk(node_path_1.default.join(currentDirectory, entry.name));
+            await walk(node_path_1.default.join(currentDirectory, entry.name), depth + 1);
         }
     }
-    await walk(workingDirectory);
+    await walk(workingDirectory, 0);
     return Array.from(discovered.values()).sort((left, right) => left.relativePath.localeCompare(right.relativePath));
 }
 function detectRepoMode(projects) {
@@ -160,14 +167,17 @@ const discovery_1 = __nccwpck_require__(8858);
 const runner_1 = __nccwpck_require__(1924);
 async function main() {
     const workingDirectory = node_path_1.default.resolve(readStringInput("working-directory", "PROJECT_CHECKS_WORKING_DIRECTORY", "."));
+    const autoInstall = readBooleanInput("auto-install", "PROJECT_CHECKS_AUTO_INSTALL", true);
     const includeRoot = readBooleanInput("include-root", "PROJECT_CHECKS_INCLUDE_ROOT", true);
+    const projectDepth = readDepthInput("project-depth", "PROJECT_CHECKS_PROJECT_DEPTH");
     const changedOnly = readBooleanInput("changed-only", "PROJECT_CHECKS_CHANGED_ONLY", false);
     const baseRef = readOptionalStringInput("base-ref", "PROJECT_CHECKS_BASE_REF");
     const headRef = readStringInput("head-ref", "PROJECT_CHECKS_HEAD_REF", "HEAD");
+    const nodeInstallCommand = readStringInput("node-install-command", "PROJECT_CHECKS_NODE_INSTALL_COMMAND", "npm ci");
     const pythonFormatCommand = readStringInput("python-format-command", "PROJECT_CHECKS_PYTHON_FORMAT_COMMAND", "uv run ruff format --check .");
     const pythonLintCommand = readStringInput("python-lint-command", "PROJECT_CHECKS_PYTHON_LINT_COMMAND", "uv run ruff check .");
     core.info(`Scanning ${workingDirectory} for supported projects.`);
-    const projects = await (0, discovery_1.discoverProjects)(workingDirectory, { includeRoot });
+    const projects = await (0, discovery_1.discoverProjects)(workingDirectory, { includeRoot, projectDepth });
     const repoMode = (0, discovery_1.detectRepoMode)(projects);
     const projectPaths = projects.map((project) => project.relativePath);
     const detectedEcosystems = Array.from(new Set(projects.flatMap((project) => project.targets.map((target) => target.ecosystem)))).sort();
@@ -184,9 +194,11 @@ async function main() {
     }
     core.info(`Discovered ${projects.length} project root(s): ${projectPaths.join(", ")}`);
     const { selectedProjects } = await (0, runner_1.selectProjectsForExecution)(projects, {
+        autoInstall,
         baseRef,
         changedOnly,
         headRef,
+        nodeInstallCommand,
         pythonFormatCommand,
         pythonLintCommand,
         workingDirectory
@@ -200,9 +212,11 @@ async function main() {
     }
     core.info(`Running checks for ${selectedProjects.length} project root(s).`);
     const runSummary = await (0, runner_1.runProjects)(selectedProjects, {
+        autoInstall,
         baseRef,
         changedOnly,
         headRef,
+        nodeInstallCommand,
         pythonFormatCommand,
         pythonLintCommand,
         workingDirectory
@@ -254,6 +268,17 @@ function parseBoolean(value, label) {
         return false;
     }
     throw new Error(`Expected ${label} to be true or false, received: ${value}`);
+}
+function readDepthInput(name, envName) {
+    const value = readStringInput(name, envName, "-1").trim();
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isNaN(parsed) || String(parsed) !== value) {
+        throw new Error(`Expected ${name} to be an integer, received: ${value}`);
+    }
+    if (parsed < -1) {
+        throw new Error(`Expected ${name} to be -1 or greater, received: ${value}`);
+    }
+    return parsed === -1 ? undefined : parsed;
 }
 function setExecutionOutputs(passedProjectPaths, failedProjectPaths, executionResults) {
     core.setOutput("passed_project_paths", JSON.stringify(passedProjectPaths));
@@ -310,6 +335,7 @@ exports.selectProjectsForExecution = selectProjectsForExecution;
 exports.runProjects = runProjects;
 const core = __importStar(__nccwpck_require__(7484));
 const exec = __importStar(__nccwpck_require__(5236));
+const node_fs_1 = __nccwpck_require__(3024);
 const node_path_1 = __importDefault(__nccwpck_require__(6760));
 const NODE_SCRIPT_ORDER = ["format", "lint", "test", "build"];
 async function selectProjectsForExecution(projects, inputs) {
@@ -337,8 +363,20 @@ async function selectProjectsForExecution(projects, inputs) {
     };
 }
 async function runProjects(projects, inputs, commandExecutor = execCommand) {
+    const installFailures = await installNodeDependencies(projects, inputs, commandExecutor);
     const results = [];
     for (const project of projects) {
+        const installFailure = installFailures.get(project.relativePath);
+        if (installFailure) {
+            core.error(`${project.relativePath}: ${installFailure}`);
+            results.push({
+                ecosystems: project.targets.map((target) => target.ecosystem),
+                error: installFailure,
+                path: project.relativePath,
+                status: "failed"
+            });
+            continue;
+        }
         const ecosystems = project.targets.map((target) => target.ecosystem);
         core.startGroup(`Running checks for ${project.relativePath} [${ecosystems.join(", ")}]`);
         try {
@@ -378,6 +416,68 @@ async function runProjects(projects, inputs, commandExecutor = execCommand) {
             .map((result) => result.path),
         results
     };
+}
+async function installNodeDependencies(projects, inputs, commandExecutor) {
+    if (!inputs.autoInstall) {
+        return new Map();
+    }
+    const nodeProjects = projects.filter(projectHasRunnableNodeTarget);
+    if (nodeProjects.length === 0) {
+        return new Map();
+    }
+    const steps = await resolveNodeInstallSteps(nodeProjects, inputs.workingDirectory);
+    const failures = new Map();
+    for (const step of steps) {
+        core.startGroup(`Installing Node dependencies for ${step.label}`);
+        try {
+            core.info(`${step.label}: ${inputs.nodeInstallCommand}`);
+            await execConfiguredCommand(inputs.nodeInstallCommand, step.installPath, commandExecutor);
+        }
+        catch (error) {
+            const message = `Dependency install failed: ${formatError(error)}`;
+            core.error(`${step.label}: ${message}`);
+            for (const projectPath of step.coveredProjectPaths) {
+                failures.set(projectPath, message);
+            }
+        }
+        finally {
+            core.endGroup();
+        }
+    }
+    return failures;
+}
+async function resolveNodeInstallSteps(nodeProjects, workingDirectory) {
+    if (await shouldUseRootWorkspaceInstall(workingDirectory)) {
+        return [
+            {
+                coveredProjectPaths: nodeProjects.map((project) => project.relativePath),
+                installPath: workingDirectory,
+                label: "."
+            }
+        ];
+    }
+    const steps = [];
+    for (const project of nodeProjects) {
+        if (await hasNodeLockfile(project.rootPath)) {
+            steps.push({
+                coveredProjectPaths: [project.relativePath],
+                installPath: project.rootPath,
+                label: project.relativePath
+            });
+            continue;
+        }
+        core.warning(`${project.relativePath}: skipping automatic npm install because no package-lock.json or npm-shrinkwrap.json was found.`);
+    }
+    return steps;
+}
+function projectHasRunnableNodeTarget(project) {
+    return project.targets.some((target) => {
+        if (target.ecosystem !== "node") {
+            return false;
+        }
+        const metadata = target.metadata;
+        return NODE_SCRIPT_ORDER.some((scriptName) => scriptName in metadata.scripts);
+    });
 }
 async function runNodeTarget(relativePath, rootPath, metadata, commandExecutor) {
     for (const scriptName of NODE_SCRIPT_ORDER) {
@@ -515,6 +615,33 @@ function formatError(error) {
         return error.message;
     }
     return String(error);
+}
+async function shouldUseRootWorkspaceInstall(workingDirectory) {
+    const packageJsonPath = node_path_1.default.join(workingDirectory, "package.json");
+    if (!(await pathExists(packageJsonPath)) || !(await hasNodeLockfile(workingDirectory))) {
+        return false;
+    }
+    const packageJson = JSON.parse(await node_fs_1.promises.readFile(packageJsonPath, "utf8"));
+    return hasWorkspaces(packageJson.workspaces);
+}
+function hasWorkspaces(workspaces) {
+    if (Array.isArray(workspaces)) {
+        return workspaces.length > 0;
+    }
+    return Array.isArray(workspaces?.packages) && workspaces.packages.length > 0;
+}
+async function hasNodeLockfile(directory) {
+    return ((await pathExists(node_path_1.default.join(directory, "package-lock.json"))) ||
+        (await pathExists(node_path_1.default.join(directory, "npm-shrinkwrap.json"))));
+}
+async function pathExists(filePath) {
+    try {
+        await node_fs_1.promises.access(filePath);
+        return true;
+    }
+    catch {
+        return false;
+    }
 }
 
 
