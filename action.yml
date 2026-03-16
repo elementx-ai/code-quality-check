@@ -1,0 +1,123 @@
+name: Project Checks
+description: Check out a repository, set up Node and Python tooling when needed, then run standard project checks.
+inputs:
+  checkout:
+    description: Check out the calling repository before scanning for projects.
+    required: false
+    default: "true"
+  fetch-depth:
+    description: Checkout depth. Use 0 when changed-only mode needs full history.
+    required: false
+    default: "0"
+  auto-setup:
+    description: Automatically set up Node and Python toolchains based on detected project types.
+    required: false
+    default: "true"
+  node-version:
+    description: Node version to install when Node projects are detected.
+    required: false
+    default: "24"
+  python-version:
+    description: Python version to install when Python projects are detected.
+    required: false
+    default: "3.12"
+  uv-version:
+    description: Optional uv version to install when Python projects are detected.
+    required: false
+    default: ""
+  working-directory:
+    description: Directory to scan for projects.
+    required: false
+    default: .
+  include-root:
+    description: Include the working directory itself when it contains a supported manifest.
+    required: false
+    default: "true"
+  changed-only:
+    description: Only run checks for discovered projects that contain changed files.
+    required: false
+    default: "false"
+  base-ref:
+    description: Base git ref or SHA to diff against when changed-only is true.
+    required: false
+  head-ref:
+    description: Head git ref or SHA to diff against when changed-only is true.
+    required: false
+    default: HEAD
+  python-format-command:
+    description: Command to run for Python formatting checks when Ruff is detected.
+    required: false
+    default: uv run ruff format --check .
+  python-lint-command:
+    description: Command to run for Python lint checks when Ruff is detected.
+    required: false
+    default: uv run ruff check .
+outputs:
+  repo_mode:
+    description: empty, single-project, or monorepo.
+    value: ${{ steps.run.outputs.repo_mode }}
+  project_count:
+    description: Number of discovered project roots.
+    value: ${{ steps.run.outputs.project_count }}
+  selected_project_count:
+    description: Number of project roots selected for execution after filtering.
+    value: ${{ steps.run.outputs.selected_project_count }}
+  project_paths:
+    description: JSON array of discovered project paths relative to the working directory.
+    value: ${{ steps.run.outputs.project_paths }}
+  selected_project_paths:
+    description: JSON array of selected project paths relative to the working directory.
+    value: ${{ steps.run.outputs.selected_project_paths }}
+  detected_ecosystems:
+    description: JSON array of ecosystems detected across discovered project roots.
+    value: ${{ steps.run.outputs.detected_ecosystems }}
+runs:
+  using: composite
+  steps:
+    - name: Checkout
+      if: ${{ inputs.checkout == 'true' }}
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: ${{ inputs.fetch-depth }}
+
+    - name: Detect ecosystems
+      id: detect
+      shell: bash
+      run: "$GITHUB_ACTION_PATH/scripts/detect-ecosystems.sh"
+      env:
+        PROJECT_CHECKS_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+
+    - name: Setup Node
+      if: ${{ inputs.auto-setup == 'true' && steps.detect.outputs.has_node == 'true' }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Setup Python
+      if: ${{ inputs.auto-setup == 'true' && steps.detect.outputs.has_python == 'true' }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Setup uv
+      if: ${{ inputs.auto-setup == 'true' && steps.detect.outputs.has_python == 'true' && inputs.uv-version == '' }}
+      uses: astral-sh/setup-uv@v4
+
+    - name: Setup uv version
+      if: ${{ inputs.auto-setup == 'true' && steps.detect.outputs.has_python == 'true' && inputs.uv-version != '' }}
+      uses: astral-sh/setup-uv@v4
+      with:
+        version: ${{ inputs.uv-version }}
+
+    - name: Run project checks
+      id: run
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/dist/index.js"
+      env:
+        PROJECT_CHECKS_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        PROJECT_CHECKS_INCLUDE_ROOT: ${{ inputs.include-root }}
+        PROJECT_CHECKS_CHANGED_ONLY: ${{ inputs.changed-only }}
+        PROJECT_CHECKS_BASE_REF: ${{ inputs.base-ref }}
+        PROJECT_CHECKS_HEAD_REF: ${{ inputs.head-ref }}
+        PROJECT_CHECKS_PYTHON_FORMAT_COMMAND: ${{ inputs.python-format-command }}
+        PROJECT_CHECKS_PYTHON_LINT_COMMAND: ${{ inputs.python-lint-command }}

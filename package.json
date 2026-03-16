@@ -1,0 +1,31 @@
+{
+  "name": "ga-setup",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reusable GitHub Action for discovering runnable projects and executing standard checks.",
+  "main": "dist/index.js",
+  "scripts": {
+    "clean": "rm -rf dist lib",
+    "build:lib": "rm -rf lib && tsc -p tsconfig.json",
+    "build": "npm run clean && npm run build:lib && ncc build lib/index.js -o dist && rm -rf lib",
+    "test": "npm run build:lib && node --test test/**/*.test.js"
+  },
+  "keywords": [
+    "github-action",
+    "monorepo",
+    "node",
+    "python",
+    "uv"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/exec": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@vercel/ncc": "^0.38.3",
+    "typescript": "^5.8.3"
+  }
+}
