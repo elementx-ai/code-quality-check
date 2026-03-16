@@ -2,7 +2,7 @@ import * as core from "@actions/core";
 import * as exec from "@actions/exec";
 import path from "node:path";
 
-import { NodeTargetMetadata, Project, PythonTargetMetadata } from "./types";
+import { Ecosystem, NodeTargetMetadata, Project, PythonTargetMetadata } from "./types";
 
 const NODE_SCRIPT_ORDER = ["format", "lint", "test", "build"] as const;
 
@@ -19,6 +19,26 @@ export interface ExecutionSummary {
   changedFiles: string[];
   selectedProjects: Project[];
 }
+
+export interface ProjectExecutionResult {
+  error?: string;
+  ecosystems: Ecosystem[];
+  path: string;
+  status: "failed" | "passed";
+}
+
+export interface RunProjectsSummary {
+  failedProjectPaths: string[];
+  passedProjectPaths: string[];
+  results: ProjectExecutionResult[];
+}
+
+type CommandExecutor = (
+  commandLine: string,
+  args: string[],
+  cwd: string,
+  options?: ExecOptions
+) => Promise<void>;
 
 export async function selectProjectsForExecution(
   projects: Project[],
@@ -59,16 +79,24 @@ export async function selectProjectsForExecution(
 
 export async function runProjects(
   projects: Project[],
-  inputs: RunnerInputs
-): Promise<void> {
+  inputs: RunnerInputs,
+  commandExecutor: CommandExecutor = execCommand
+): Promise<RunProjectsSummary> {
+  const results: ProjectExecutionResult[] = [];
+
   for (const project of projects) {
-    const ecosystems = project.targets.map((target) => target.ecosystem).join(", ");
-    core.startGroup(`Running checks for ${project.relativePath} [${ecosystems}]`);
+    const ecosystems = project.targets.map((target) => target.ecosystem);
+    core.startGroup(`Running checks for ${project.relativePath} [${ecosystems.join(", ")}]`);
 
     try {
       for (const target of project.targets) {
         if (target.ecosystem === "node") {
-          await runNodeTarget(project.relativePath, project.rootPath, target.metadata as NodeTargetMetadata);
+          await runNodeTarget(
+            project.relativePath,
+            project.rootPath,
+            target.metadata as NodeTargetMetadata,
+            commandExecutor
+          );
           continue;
         }
 
@@ -76,19 +104,45 @@ export async function runProjects(
           project.relativePath,
           project.rootPath,
           target.metadata as PythonTargetMetadata,
-          inputs
+          inputs,
+          commandExecutor
         );
       }
+      results.push({
+        ecosystems,
+        path: project.relativePath,
+        status: "passed"
+      });
+    } catch (error: unknown) {
+      const message = formatError(error);
+      core.error(`${project.relativePath}: ${message}`);
+      results.push({
+        ecosystems,
+        error: message,
+        path: project.relativePath,
+        status: "failed"
+      });
     } finally {
       core.endGroup();
     }
   }
+
+  return {
+    failedProjectPaths: results
+      .filter((result) => result.status === "failed")
+      .map((result) => result.path),
+    passedProjectPaths: results
+      .filter((result) => result.status === "passed")
+      .map((result) => result.path),
+    results
+  };
 }
 
 async function runNodeTarget(
   relativePath: string,
   rootPath: string,
-  metadata: NodeTargetMetadata
+  metadata: NodeTargetMetadata,
+  commandExecutor: CommandExecutor
 ): Promise<void> {
   for (const scriptName of NODE_SCRIPT_ORDER) {
     if (!(scriptName in metadata.scripts)) {
@@ -97,7 +151,7 @@ async function runNodeTarget(
     }
 
     core.info(`${relativePath}: npm run ${scriptName}`);
-    await execCommand("npm", ["run", scriptName], rootPath);
+    await commandExecutor("npm", ["run", scriptName], rootPath);
   }
 }
 
@@ -105,7 +159,8 @@ async function runPythonTarget(
   relativePath: string,
   rootPath: string,
   metadata: PythonTargetMetadata,
-  inputs: RunnerInputs
+  inputs: RunnerInputs,
+  commandExecutor: CommandExecutor
 ): Promise<void> {
   if (!metadata.hasRuff) {
     core.warning(
@@ -115,10 +170,10 @@ async function runPythonTarget(
   }
 
   core.info(`${relativePath}: ${inputs.pythonFormatCommand}`);
-  await execConfiguredCommand(inputs.pythonFormatCommand, rootPath);
+  await execConfiguredCommand(inputs.pythonFormatCommand, rootPath, commandExecutor);
 
   core.info(`${relativePath}: ${inputs.pythonLintCommand}`);
-  await execConfiguredCommand(inputs.pythonLintCommand, rootPath);
+  await execConfiguredCommand(inputs.pythonLintCommand, rootPath, commandExecutor);
 }
 
 async function resolveGitRoot(workingDirectory: string): Promise<string> {
@@ -214,9 +269,13 @@ async function execCommand(
   }
 }
 
-async function execConfiguredCommand(commandLine: string, cwd: string): Promise<void> {
+async function execConfiguredCommand(
+  commandLine: string,
+  cwd: string,
+  commandExecutor: CommandExecutor
+): Promise<void> {
   const [tool, ...args] = splitCommandLine(commandLine);
-  await execCommand(tool, args, cwd);
+  await commandExecutor(tool, args, cwd);
 }
 
 function splitCommandLine(commandLine: string): string[] {
@@ -277,4 +336,12 @@ function splitCommandLine(commandLine: string): string[] {
   }
 
   return tokens;
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 }
