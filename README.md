@@ -53,9 +53,9 @@ jobs:
 
 What the action handles internally:
 
-- `actions/checkout@v4`
-- `actions/setup-node@v4` when a `package.json` is detected
-- `actions/setup-python@v5` and `astral-sh/setup-uv@v4` when a `pyproject.toml` is detected
+- `actions/checkout@v6`
+- `actions/setup-node@v6` when a `package.json` is detected
+- `actions/setup-python@v6` and `astral-sh/setup-uv@v7` when a `pyproject.toml` is detected
 
 Important constraint:
 
