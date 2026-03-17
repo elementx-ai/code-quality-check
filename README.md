@@ -1,4 +1,4 @@
-# Project Checks Action
+# Code Quality Check Action
 
 This repository contains a reusable GitHub Action that checks out a repository, sets up the required toolchains, discovers runnable projects, and executes standard checks for each one.
 
@@ -58,16 +58,16 @@ jobs:
 If you use `pull_request_target`, do your own checkout first so `HEAD` points at the PR head commit:
 
 ```yaml
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
+- uses: actions/checkout@v6
+  with:
+    ref: ${{ github.event.pull_request.head.sha }}
+    fetch-depth: 0
 
-      - uses: elementx-ai/code-quality-check@main
-        with:
-          checkout: false
-          changed-only: true
-          base-ref: ${{ github.event.pull_request.base.sha }}
+- uses: elementx-ai/code-quality-check@main
+  with:
+    checkout: false
+    changed-only: true
+    base-ref: ${{ github.event.pull_request.base.sha }}
 ```
 
 Depth control:
@@ -127,15 +127,15 @@ Useful inputs:
 Example:
 
 ```yaml
-      - id: quality
-        uses: elementx-ai/code-quality-check@main
-        with:
-          changed-only: true
-          base-ref: ${{ github.event.pull_request.base.sha || github.event.before }}
+- id: quality
+  uses: elementx-ai/code-quality-check@main
+  with:
+    changed-only: true
+    base-ref: ${{ github.event.pull_request.base.sha || github.event.before }}
 
-      - name: React to evaluator failure
-        if: ${{ contains(fromJSON(steps.quality.outputs.failed_project_paths), 'evaluator') }}
-        run: echo "evaluator failed quality checks"
+- name: React to evaluator failure
+  if: ${{ contains(fromJSON(steps.quality.outputs.failed_project_paths), 'evaluator') }}
+  run: echo "evaluator failed quality checks"
 ```
 
 ## Local development
