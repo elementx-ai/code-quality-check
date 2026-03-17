@@ -108,7 +108,7 @@ export async function discoverProjects(
       }
 
       if (TERRAFORM_DIRECTORIES.has(entry.name)) {
-        if (shouldDiscover) {
+        if (withinDepth) {
           const tfDirectory = path.join(currentDirectory, entry.name);
           if (await hasTerraformFiles(tfDirectory)) {
             addProjectTarget(discovered, workingDirectory, tfDirectory, {

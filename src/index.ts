@@ -47,7 +47,7 @@ async function main(): Promise<void> {
 
   if (misplacedTerraformFiles.length > 0) {
     throw new Error(
-      `Terraform files must be placed in a directory named "tf". ` +
+      `Terraform files must be placed in a directory named "tf" or "module". ` +
         `Found misplaced .tf file(s): ${misplacedTerraformFiles.join(", ")}`
     );
   }

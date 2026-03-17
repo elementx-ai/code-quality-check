@@ -89,7 +89,7 @@ async function discoverProjects(workingDirectory, options) {
                 continue;
             }
             if (TERRAFORM_DIRECTORIES.has(entry.name)) {
-                if (shouldDiscover) {
+                if (withinDepth) {
                     const tfDirectory = node_path_1.default.join(currentDirectory, entry.name);
                     if (await hasTerraformFiles(tfDirectory)) {
                         addProjectTarget(discovered, workingDirectory, tfDirectory, {
@@ -222,7 +222,7 @@ async function main() {
         projectDepth
     });
     if (misplacedTerraformFiles.length > 0) {
-        throw new Error(`Terraform files must be placed in a directory named "tf". ` +
+        throw new Error(`Terraform files must be placed in a directory named "tf" or "module". ` +
             `Found misplaced .tf file(s): ${misplacedTerraformFiles.join(", ")}`);
     }
     const repoMode = (0, discovery_1.detectRepoMode)(projects);
@@ -540,7 +540,7 @@ function projectHasRunnableNodeTarget(project) {
         if (target.ecosystem !== "node") {
             return false;
         }
-        return NODE_SCRIPT_ORDER.some((scriptName) => scriptName in target.metadata.scripts);
+        return Array.from(REQUIRED_NODE_SCRIPTS).every((scriptName) => scriptName in target.metadata.scripts);
     });
 }
 async function runNodeTarget(relativePath, rootPath, metadata, commandExecutor) {

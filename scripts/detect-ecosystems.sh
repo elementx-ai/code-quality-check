@@ -6,6 +6,7 @@ working_directory="${PROJECT_CHECKS_WORKING_DIRECTORY:-.}"
 if [[ ! -d "$working_directory" ]]; then
   echo "has_node=false" >> "$GITHUB_OUTPUT"
   echo "has_python=false" >> "$GITHUB_OUTPUT"
+  echo "has_terraform=false" >> "$GITHUB_OUTPUT"
   exit 0
 fi
 
