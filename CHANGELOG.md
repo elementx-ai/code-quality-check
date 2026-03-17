@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.3.0...code-quality-check-v0.3.1) (2026-03-17)
+
+
+### Bug Fixes
+
+* Add code-quality-check action ([#8](https://github.com/elementx-ai/code-quality-check/issues/8)) ([ceebf06](https://github.com/elementx-ai/code-quality-check/commit/ceebf06a825ec42015df66e98e229fcce5768908))
+
 ## [0.3.0](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.2.0...code-quality-check-v0.3.0) (2026-03-16)
 
 
