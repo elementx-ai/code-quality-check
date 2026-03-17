@@ -65,7 +65,7 @@ async function main(): Promise<void> {
   setExecutionOutputs([], [], []);
 
   if (projects.length === 0) {
-    core.notice("No supported projects were discovered. Nothing to do.");
+    core.info("No supported projects were discovered. Nothing to do.");
     core.setOutput("selected_project_count", "0");
     core.setOutput("selected_project_paths", "[]");
     return;
@@ -93,7 +93,7 @@ async function main(): Promise<void> {
   core.setOutput("selected_project_paths", JSON.stringify(selectedProjectPaths));
 
   if (selectedProjects.length === 0) {
-    core.notice("No discovered projects matched the current change set.");
+    core.info("No discovered projects matched the current change set.");
     return;
   }
 

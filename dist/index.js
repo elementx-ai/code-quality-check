@@ -234,7 +234,7 @@ async function main() {
     core.setOutput("detected_ecosystems", JSON.stringify(detectedEcosystems));
     setExecutionOutputs([], [], []);
     if (projects.length === 0) {
-        core.notice("No supported projects were discovered. Nothing to do.");
+        core.info("No supported projects were discovered. Nothing to do.");
         core.setOutput("selected_project_count", "0");
         core.setOutput("selected_project_paths", "[]");
         return;
@@ -257,7 +257,7 @@ async function main() {
     core.setOutput("selected_project_count", String(selectedProjects.length));
     core.setOutput("selected_project_paths", JSON.stringify(selectedProjectPaths));
     if (selectedProjects.length === 0) {
-        core.notice("No discovered projects matched the current change set.");
+        core.info("No discovered projects matched the current change set.");
         return;
     }
     core.info(`Running checks for ${selectedProjects.length} project root(s).`);
@@ -517,7 +517,7 @@ async function resolveNodeInstallSteps(nodeProjects, workingDirectory) {
             });
             continue;
         }
-        core.warning(`${project.relativePath}: skipping automatic npm install because no package-lock.json or npm-shrinkwrap.json was found.`);
+        core.info(`${project.relativePath}: skipping automatic npm install because no package-lock.json or npm-shrinkwrap.json was found.`);
     }
     return steps;
 }
@@ -550,7 +550,7 @@ async function runNodeTarget(relativePath, rootPath, metadata, commandExecutor) 
                 throw new Error(`${relativePath}: required script "${scriptName}" is not defined in package.json. ` +
                     `All Node projects must define format and lint scripts.`);
             }
-            core.warning(`${relativePath}: skipping npm run ${scriptName} because the script is not defined.`);
+            core.info(`${relativePath}: skipping npm run ${scriptName} because the script is not defined.`);
             continue;
         }
         const requiredTool = REQUIRED_NODE_TOOLS[scriptName];
@@ -567,7 +567,7 @@ async function runNodeTarget(relativePath, rootPath, metadata, commandExecutor) 
 }
 async function runPythonTarget(relativePath, rootPath, metadata, inputs, commandExecutor) {
     if (!metadata.hasRuff) {
-        core.warning(`${relativePath}: skipping Python checks because pyproject.toml does not appear to configure or depend on Ruff.`);
+        core.info(`${relativePath}: skipping Python checks because pyproject.toml does not appear to configure or depend on Ruff.`);
         return;
     }
     core.info(`${relativePath}: ${inputs.pythonFormatCommand}`);

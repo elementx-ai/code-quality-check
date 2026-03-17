@@ -230,7 +230,7 @@ async function resolveNodeInstallSteps(
       continue;
     }
 
-    core.warning(
+    core.info(
       `${project.relativePath}: skipping automatic npm install because no package-lock.json or npm-shrinkwrap.json was found.`
     );
   }
@@ -284,7 +284,7 @@ async function runNodeTarget(
         );
       }
 
-      core.warning(`${relativePath}: skipping npm run ${scriptName} because the script is not defined.`);
+      core.info(`${relativePath}: skipping npm run ${scriptName} because the script is not defined.`);
       continue;
     }
 
@@ -312,7 +312,7 @@ async function runPythonTarget(
   commandExecutor: CommandExecutor
 ): Promise<void> {
   if (!metadata.hasRuff) {
-    core.warning(
+    core.info(
       `${relativePath}: skipping Python checks because pyproject.toml does not appear to configure or depend on Ruff.`
     );
     return;
