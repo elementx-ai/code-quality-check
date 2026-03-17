@@ -33,7 +33,7 @@ test("discoverProjects finds Node and Python project roots", async () => {
       ].join("\n")
     );
 
-    const projects = await discoverProjects(tempDirectory, { includeRoot: true });
+    const { projects } = await discoverProjects(tempDirectory, { includeRoot: true });
 
     assert.deepEqual(
       projects.map((project) => project.relativePath),
@@ -68,15 +68,15 @@ test("discoverProjects respects projectDepth", async () => {
       JSON.stringify({ scripts: { build: "tsc" } }, null, 2)
     );
 
-    const rootOnlyProjects = await discoverProjects(tempDirectory, {
+    const { projects: rootOnlyProjects } = await discoverProjects(tempDirectory, {
       includeRoot: true,
       projectDepth: 0
     });
-    const oneLevelProjects = await discoverProjects(tempDirectory, {
+    const { projects: oneLevelProjects } = await discoverProjects(tempDirectory, {
       includeRoot: true,
       projectDepth: 1
     });
-    const unlimitedProjects = await discoverProjects(tempDirectory, {
+    const { projects: unlimitedProjects } = await discoverProjects(tempDirectory, {
       includeRoot: true,
       projectDepth: -1
     });
@@ -93,6 +93,188 @@ test("discoverProjects respects projectDepth", async () => {
       unlimitedProjects.map((project) => project.relativePath),
       [".", "evaluator", "services/api"]
     );
+  } finally {
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("discoverProjects finds Terraform projects in tf directories", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-tf-"));
+
+  try {
+    await fs.mkdir(path.join(tempDirectory, "tf"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDirectory, "tf", "main.tf"),
+      'resource "aws_s3_bucket" "example" {}\n'
+    );
+
+    const { projects } = await discoverProjects(tempDirectory, { includeRoot: true });
+
+    assert.deepEqual(
+      projects.map((project) => project.relativePath),
+      ["tf"]
+    );
+    assert.equal(projects[0].targets[0].ecosystem, "terraform");
+  } finally {
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("discoverProjects finds Terraform projects in monorepo tf directories", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-tf-mono-"));
+
+  try {
+    await fs.mkdir(path.join(tempDirectory, "services", "api"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDirectory, "services", "api", "package.json"),
+      JSON.stringify({ scripts: { format: "prettier .", lint: "eslint ." } }, null, 2)
+    );
+    await fs.mkdir(path.join(tempDirectory, "services", "api", "tf"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDirectory, "services", "api", "tf", "main.tf"),
+      'resource "aws_s3_bucket" "example" {}\n'
+    );
+
+    const { projects } = await discoverProjects(tempDirectory, { includeRoot: true });
+
+    assert.deepEqual(
+      projects.map((project) => project.relativePath),
+      ["services/api", "services/api/tf"]
+    );
+    assert.equal(projects[0].targets[0].ecosystem, "node");
+    assert.equal(projects[1].targets[0].ecosystem, "terraform");
+  } finally {
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("discoverProjects ignores tf directories without .tf files", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-tf-empty-"));
+
+  try {
+    await fs.mkdir(path.join(tempDirectory, "tf"), { recursive: true });
+    await fs.writeFile(path.join(tempDirectory, "tf", "readme.md"), "# Not terraform\n");
+
+    const { projects } = await discoverProjects(tempDirectory, { includeRoot: true });
+
+    assert.deepEqual(projects, []);
+  } finally {
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("discoverProjects finds Terraform projects in module directories", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-tf-module-"));
+
+  try {
+    await fs.mkdir(path.join(tempDirectory, "module"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDirectory, "module", "vpc.tf"),
+      'resource "aws_vpc" "main" {}\n'
+    );
+
+    const { projects } = await discoverProjects(tempDirectory, { includeRoot: true });
+
+    assert.deepEqual(
+      projects.map((project) => project.relativePath),
+      ["module"]
+    );
+    assert.equal(projects[0].targets[0].ecosystem, "terraform");
+  } finally {
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("discoverProjects does not flag .tf files inside module directories as misplaced", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-module-ok-"));
+
+  try {
+    await fs.mkdir(path.join(tempDirectory, "module"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDirectory, "module", "vpc.tf"),
+      'resource "aws_vpc" "main" {}\n'
+    );
+
+    const { misplacedTerraformFiles } = await discoverProjects(tempDirectory, { includeRoot: true });
+
+    assert.deepEqual(misplacedTerraformFiles, []);
+  } finally {
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("discoverProjects allows .tf files at the root directory", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-root-tf-"));
+
+  try {
+    await fs.writeFile(
+      path.join(tempDirectory, "main.tf"),
+      'resource "aws_s3_bucket" "example" {}\n'
+    );
+
+    const { misplacedTerraformFiles } = await discoverProjects(tempDirectory, { includeRoot: true });
+
+    assert.deepEqual(misplacedTerraformFiles, []);
+  } finally {
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("discoverProjects detects .tf files in non-tf subdirectories", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-misplaced-sub-"));
+
+  try {
+    await fs.mkdir(path.join(tempDirectory, "infra"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDirectory, "infra", "main.tf"),
+      'resource "aws_s3_bucket" "example" {}\n'
+    );
+    await fs.mkdir(path.join(tempDirectory, "services", "api", "deploy"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDirectory, "services", "api", "deploy", "rds.tf"),
+      'resource "aws_db_instance" "example" {}\n'
+    );
+
+    const { misplacedTerraformFiles } = await discoverProjects(tempDirectory, { includeRoot: true });
+
+    assert.deepEqual(misplacedTerraformFiles, ["infra/main.tf", "services/api/deploy/rds.tf"]);
+  } finally {
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("discoverProjects reports no misplaced files when .tf files are in tf directories", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-tf-ok-"));
+
+  try {
+    await fs.mkdir(path.join(tempDirectory, "tf"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDirectory, "tf", "main.tf"),
+      'resource "aws_s3_bucket" "example" {}\n'
+    );
+    await fs.mkdir(path.join(tempDirectory, "services", "api", "tf"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDirectory, "services", "api", "tf", "rds.tf"),
+      'resource "aws_db_instance" "example" {}\n'
+    );
+
+    const { misplacedTerraformFiles } = await discoverProjects(tempDirectory, { includeRoot: true });
+
+    assert.deepEqual(misplacedTerraformFiles, []);
+  } finally {
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("discoverProjects reports no misplaced files when no .tf files exist", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-no-tf-"));
+
+  try {
+    await fs.writeFile(path.join(tempDirectory, "index.ts"), "export const x = 1;\n");
+
+    const { misplacedTerraformFiles } = await discoverProjects(tempDirectory, { includeRoot: true });
+
+    assert.deepEqual(misplacedTerraformFiles, []);
   } finally {
     await fs.rm(tempDirectory, { recursive: true, force: true });
   }

@@ -64,6 +64,22 @@ inputs:
     description: Command to run for Python lint checks when Ruff is detected.
     required: false
     default: uv run ruff check .
+  terraform-version:
+    description: Terraform version to install when Terraform projects are detected.
+    required: false
+    default: latest
+  tflint-version:
+    description: TFLint version to install when Terraform projects are detected.
+    required: false
+    default: latest
+  terraform-format-command:
+    description: Command to run for Terraform formatting checks.
+    required: false
+    default: terraform fmt -check -recursive
+  terraform-lint-command:
+    description: Command to run for Terraform lint checks.
+    required: false
+    default: tflint --recursive
 outputs:
   repo_mode:
     description: empty, single-project, or monorepo.
@@ -130,6 +146,19 @@ runs:
       with:
         version: ${{ inputs.uv-version }}
 
+    - name: Setup Terraform
+      if: ${{ inputs.auto-setup == 'true' && steps.detect.outputs.has_terraform == 'true' }}
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
+        terraform_wrapper: false
+
+    - name: Setup TFLint
+      if: ${{ inputs.auto-setup == 'true' && steps.detect.outputs.has_terraform == 'true' }}
+      uses: terraform-linters/setup-tflint@v4
+      with:
+        tflint_version: ${{ inputs.tflint-version }}
+
     - name: Run project checks
       id: run
       shell: bash
@@ -145,3 +174,5 @@ runs:
         PROJECT_CHECKS_NODE_INSTALL_COMMAND: ${{ inputs.node-install-command }}
         PROJECT_CHECKS_PYTHON_FORMAT_COMMAND: ${{ inputs.python-format-command }}
         PROJECT_CHECKS_PYTHON_LINT_COMMAND: ${{ inputs.python-lint-command }}
+        PROJECT_CHECKS_TERRAFORM_FORMAT_COMMAND: ${{ inputs.terraform-format-command }}
+        PROJECT_CHECKS_TERRAFORM_LINT_COMMAND: ${{ inputs.terraform-lint-command }}

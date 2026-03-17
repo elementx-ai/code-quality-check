@@ -3,9 +3,14 @@ import * as exec from "@actions/exec";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { Ecosystem, NodeTargetMetadata, Project, PythonTargetMetadata } from "./types";
+import { Ecosystem, NodeTargetMetadata, Project, ProjectTarget, PythonTargetMetadata } from "./types";
 
 const NODE_SCRIPT_ORDER = ["format", "lint", "test", "build"] as const;
+const REQUIRED_NODE_SCRIPTS = new Set<string>(["format", "lint"]);
+const REQUIRED_NODE_TOOLS: Record<string, string> = {
+  format: "prettier",
+  lint: "eslint"
+};
 
 export interface RunnerInputs {
   autoInstall: boolean;
@@ -15,6 +20,8 @@ export interface RunnerInputs {
   nodeInstallCommand: string;
   pythonFormatCommand: string;
   pythonLintCommand: string;
+  terraformFormatCommand: string;
+  terraformLintCommand: string;
   workingDirectory: string;
 }
 
@@ -127,23 +134,7 @@ export async function runProjects(
 
     try {
       for (const target of project.targets) {
-        if (target.ecosystem === "node") {
-          await runNodeTarget(
-            project.relativePath,
-            project.rootPath,
-            target.metadata as NodeTargetMetadata,
-            commandExecutor
-          );
-          continue;
-        }
-
-        await runPythonTarget(
-          project.relativePath,
-          project.rootPath,
-          target.metadata as PythonTargetMetadata,
-          inputs,
-          commandExecutor
-        );
+        await runTarget(project.relativePath, project.rootPath, target, inputs, commandExecutor);
       }
       results.push({
         ecosystems,
@@ -247,14 +238,34 @@ async function resolveNodeInstallSteps(
   return steps;
 }
 
+async function runTarget(
+  relativePath: string,
+  rootPath: string,
+  target: ProjectTarget,
+  inputs: RunnerInputs,
+  commandExecutor: CommandExecutor
+): Promise<void> {
+  switch (target.ecosystem) {
+    case "node":
+      return runNodeTarget(relativePath, rootPath, target.metadata, commandExecutor);
+    case "python":
+      return runPythonTarget(relativePath, rootPath, target.metadata, inputs, commandExecutor);
+    case "terraform":
+      return runTerraformTarget(relativePath, rootPath, inputs, commandExecutor);
+    default: {
+      const _exhaustive: never = target;
+      throw new Error(`Unknown ecosystem: ${(_exhaustive as ProjectTarget).ecosystem}`);
+    }
+  }
+}
+
 function projectHasRunnableNodeTarget(project: Project): boolean {
   return project.targets.some((target) => {
     if (target.ecosystem !== "node") {
       return false;
     }
 
-    const metadata = target.metadata as NodeTargetMetadata;
-    return NODE_SCRIPT_ORDER.some((scriptName) => scriptName in metadata.scripts);
+    return NODE_SCRIPT_ORDER.some((scriptName) => scriptName in target.metadata.scripts);
   });
 }
 
@@ -266,8 +277,26 @@ async function runNodeTarget(
 ): Promise<void> {
   for (const scriptName of NODE_SCRIPT_ORDER) {
     if (!(scriptName in metadata.scripts)) {
+      if (REQUIRED_NODE_SCRIPTS.has(scriptName)) {
+        throw new Error(
+          `${relativePath}: required script "${scriptName}" is not defined in package.json. ` +
+            `All Node projects must define format and lint scripts.`
+        );
+      }
+
       core.warning(`${relativePath}: skipping npm run ${scriptName} because the script is not defined.`);
       continue;
+    }
+
+    const requiredTool = REQUIRED_NODE_TOOLS[scriptName];
+    if (requiredTool) {
+      const scriptValue = metadata.scripts[scriptName];
+      if (!new RegExp(`\\b${requiredTool}\\b`).test(scriptValue)) {
+        throw new Error(
+          `${relativePath}: the "${scriptName}" script must use ${requiredTool}, ` +
+            `but found: "${scriptValue}"`
+        );
+      }
     }
 
     core.info(`${relativePath}: npm run ${scriptName}`);
@@ -294,6 +323,19 @@ async function runPythonTarget(
 
   core.info(`${relativePath}: ${inputs.pythonLintCommand}`);
   await execConfiguredCommand(inputs.pythonLintCommand, rootPath, commandExecutor);
+}
+
+async function runTerraformTarget(
+  relativePath: string,
+  rootPath: string,
+  inputs: RunnerInputs,
+  commandExecutor: CommandExecutor
+): Promise<void> {
+  core.info(`${relativePath}: ${inputs.terraformFormatCommand}`);
+  await execConfiguredCommand(inputs.terraformFormatCommand, rootPath, commandExecutor);
+
+  core.info(`${relativePath}: ${inputs.terraformLintCommand}`);
+  await execConfiguredCommand(inputs.terraformLintCommand, rootPath, commandExecutor);
 }
 
 async function resolveGitRoot(workingDirectory: string): Promise<string> {

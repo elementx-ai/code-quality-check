@@ -57,6 +57,8 @@ test("runProjects returns passed and failed project paths", async () => {
       nodeInstallCommand: "npm ci",
       pythonFormatCommand: "uv run ruff format --check .",
       pythonLintCommand: "uv run ruff check .",
+      terraformFormatCommand: "terraform fmt -check -recursive",
+      terraformLintCommand: "tflint --recursive",
       workingDirectory: "/tmp"
     },
     commandExecutor
@@ -114,7 +116,7 @@ test("runProjects installs workspace dependencies once from the root", async () 
     await fs.mkdir(path.join(tempDirectory, "packages", "evaluator"), { recursive: true });
     await fs.writeFile(
       path.join(tempDirectory, "packages", "evaluator", "package.json"),
-      JSON.stringify({ scripts: { lint: "eslint ." } }, null, 2)
+      JSON.stringify({ scripts: { format: "prettier .", lint: "eslint ." } }, null, 2)
     );
 
     async function commandExecutor(commandLine, args, cwd) {
@@ -132,6 +134,7 @@ test("runProjects installs workspace dependencies once from the root", async () 
               manifestPath: path.join(tempDirectory, "packages", "evaluator", "package.json"),
               metadata: {
                 scripts: {
+                  format: "prettier .",
                   lint: "eslint ."
                 }
               }
@@ -146,6 +149,8 @@ test("runProjects installs workspace dependencies once from the root", async () 
         nodeInstallCommand: "npm ci",
         pythonFormatCommand: "uv run ruff format --check .",
         pythonLintCommand: "uv run ruff check .",
+        terraformFormatCommand: "terraform fmt -check -recursive",
+        terraformLintCommand: "tflint --recursive",
         workingDirectory: tempDirectory
       },
       commandExecutor
@@ -158,6 +163,11 @@ test("runProjects installs workspace dependencies once from the root", async () 
         args: ["ci"],
         commandLine: "npm",
         cwd: tempDirectory
+      },
+      {
+        args: ["run", "format"],
+        commandLine: "npm",
+        cwd: path.join(tempDirectory, "packages", "evaluator")
       },
       {
         args: ["run", "lint"],
@@ -204,17 +214,220 @@ test("runProjects skips auto-install for node projects with no runnable scripts"
         nodeInstallCommand: "npm ci",
         pythonFormatCommand: "uv run ruff format --check .",
         pythonLintCommand: "uv run ruff check .",
+        terraformFormatCommand: "terraform fmt -check -recursive",
+        terraformLintCommand: "tflint --recursive",
         workingDirectory: tempDirectory
       },
       commandExecutor
     );
 
-    assert.deepEqual(summary.passedProjectPaths, ["."]);
-    assert.deepEqual(summary.failedProjectPaths, []);
+    assert.deepEqual(summary.passedProjectPaths, []);
+    assert.deepEqual(summary.failedProjectPaths, ["."]);
+    assert.ok(summary.results[0].error.includes('required script "format"'));
     assert.deepEqual(calls, []);
   } finally {
     await fs.rm(tempDirectory, { recursive: true, force: true });
   }
+});
+
+test("runProjects fails when a required Node script is missing", async () => {
+  const calls = [];
+  const projects = [
+    {
+      rootPath: "/tmp/app",
+      relativePath: "app",
+      targets: [
+        {
+          ecosystem: "node",
+          manifestPath: "/tmp/app/package.json",
+          metadata: {
+            scripts: {
+              test: "vitest",
+              build: "tsc"
+            }
+          }
+        }
+      ]
+    }
+  ];
+
+  async function commandExecutor(commandLine, args, cwd) {
+    calls.push({ args, commandLine, cwd });
+  }
+
+  const summary = await runProjects(
+    projects,
+    {
+      autoInstall: false,
+      changedOnly: false,
+      headRef: "HEAD",
+      nodeInstallCommand: "npm ci",
+      pythonFormatCommand: "uv run ruff format --check .",
+      pythonLintCommand: "uv run ruff check .",
+      terraformFormatCommand: "terraform fmt -check -recursive",
+      terraformLintCommand: "tflint --recursive",
+      workingDirectory: "/tmp"
+    },
+    commandExecutor
+  );
+
+  assert.deepEqual(summary.failedProjectPaths, ["app"]);
+  assert.ok(summary.results[0].error.includes('required script "format"'));
+  assert.deepEqual(calls, []);
+});
+
+test("runProjects fails when format script does not use prettier", async () => {
+  const calls = [];
+  const projects = [
+    {
+      rootPath: "/tmp/app",
+      relativePath: "app",
+      targets: [
+        {
+          ecosystem: "node",
+          manifestPath: "/tmp/app/package.json",
+          metadata: {
+            scripts: {
+              format: "biome format .",
+              lint: "eslint ."
+            }
+          }
+        }
+      ]
+    }
+  ];
+
+  async function commandExecutor(commandLine, args, cwd) {
+    calls.push({ args, commandLine, cwd });
+  }
+
+  const summary = await runProjects(
+    projects,
+    {
+      autoInstall: false,
+      changedOnly: false,
+      headRef: "HEAD",
+      nodeInstallCommand: "npm ci",
+      pythonFormatCommand: "uv run ruff format --check .",
+      pythonLintCommand: "uv run ruff check .",
+      terraformFormatCommand: "terraform fmt -check -recursive",
+      terraformLintCommand: "tflint --recursive",
+      workingDirectory: "/tmp"
+    },
+    commandExecutor
+  );
+
+  assert.deepEqual(summary.failedProjectPaths, ["app"]);
+  assert.ok(summary.results[0].error.includes('must use prettier'));
+  assert.ok(summary.results[0].error.includes("biome format ."));
+  assert.deepEqual(calls, []);
+});
+
+test("runProjects fails when lint script does not use eslint", async () => {
+  const calls = [];
+  const projects = [
+    {
+      rootPath: "/tmp/app",
+      relativePath: "app",
+      targets: [
+        {
+          ecosystem: "node",
+          manifestPath: "/tmp/app/package.json",
+          metadata: {
+            scripts: {
+              format: "prettier --check .",
+              lint: "biome lint ."
+            }
+          }
+        }
+      ]
+    }
+  ];
+
+  async function commandExecutor(commandLine, args, cwd) {
+    calls.push({ args, commandLine, cwd });
+  }
+
+  const summary = await runProjects(
+    projects,
+    {
+      autoInstall: false,
+      changedOnly: false,
+      headRef: "HEAD",
+      nodeInstallCommand: "npm ci",
+      pythonFormatCommand: "uv run ruff format --check .",
+      pythonLintCommand: "uv run ruff check .",
+      terraformFormatCommand: "terraform fmt -check -recursive",
+      terraformLintCommand: "tflint --recursive",
+      workingDirectory: "/tmp"
+    },
+    commandExecutor
+  );
+
+  assert.deepEqual(summary.failedProjectPaths, ["app"]);
+  assert.ok(summary.results[0].error.includes('must use eslint'));
+  assert.ok(summary.results[0].error.includes("biome lint ."));
+  assert.deepEqual(calls, [
+    {
+      args: ["run", "format"],
+      commandLine: "npm",
+      cwd: "/tmp/app"
+    }
+  ]);
+});
+
+test("runProjects runs terraform format and lint commands", async () => {
+  const calls = [];
+  const projects = [
+    {
+      rootPath: "/tmp/infra/tf",
+      relativePath: "infra/tf",
+      targets: [
+        {
+          ecosystem: "terraform",
+          manifestPath: "/tmp/infra/tf",
+          metadata: {
+            tfDirectory: "/tmp/infra/tf"
+          }
+        }
+      ]
+    }
+  ];
+
+  async function commandExecutor(commandLine, args, cwd) {
+    calls.push({ args, commandLine, cwd });
+  }
+
+  const summary = await runProjects(
+    projects,
+    {
+      autoInstall: false,
+      changedOnly: false,
+      headRef: "HEAD",
+      nodeInstallCommand: "npm ci",
+      pythonFormatCommand: "uv run ruff format --check .",
+      pythonLintCommand: "uv run ruff check .",
+      terraformFormatCommand: "terraform fmt -check -recursive",
+      terraformLintCommand: "tflint --recursive",
+      workingDirectory: "/tmp"
+    },
+    commandExecutor
+  );
+
+  assert.deepEqual(summary.passedProjectPaths, ["infra/tf"]);
+  assert.deepEqual(summary.failedProjectPaths, []);
+  assert.deepEqual(calls, [
+    {
+      args: ["fmt", "-check", "-recursive"],
+      commandLine: "terraform",
+      cwd: "/tmp/infra/tf"
+    },
+    {
+      args: ["--recursive"],
+      commandLine: "tflint",
+      cwd: "/tmp/infra/tf"
+    }
+  ]);
 });
 
 test("selectProjectsForExecution uses merge-base for pull requests", async () => {

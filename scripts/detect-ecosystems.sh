@@ -41,3 +41,18 @@ if find "${find_args[@]}" -name pyproject.toml -print -quit | grep -q .; then
 else
   echo "has_python=false" >> "$GITHUB_OUTPUT"
 fi
+
+# Check if any tf or module directory contains .tf files
+has_terraform=false
+for dir_name in tf module; do
+  if [[ "$has_terraform" == "true" ]]; then
+    break
+  fi
+  while IFS= read -r tf_dir; do
+    if find "$tf_dir" -maxdepth 1 -name '*.tf' -print -quit | grep -q .; then
+      has_terraform=true
+      break
+    fi
+  done < <(find "${find_args[@]}" -type d -name "$dir_name" -print 2>/dev/null)
+done
+echo "has_terraform=$has_terraform" >> "$GITHUB_OUTPUT"

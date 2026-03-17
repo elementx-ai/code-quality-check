@@ -8,7 +8,7 @@
     "clean": "rm -rf dist lib",
     "build:lib": "rm -rf lib && tsc -p tsconfig.json",
     "build": "npm run clean && npm run build:lib && ncc build lib/index.js -o dist && rm -rf lib",
-    "test": "npm run build:lib && node --test test/**/*.test.js"
+    "test": "npm run build:lib && node --test test/*.test.js"
   },
   "keywords": [
     "github-action",
