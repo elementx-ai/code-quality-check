@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.3.1...code-quality-check-v0.4.0) (2026-03-18)
+
+
+### Features
+
+* Add terraform lint/formatting, enforce node required lint/formatting ([#10](https://github.com/elementx-ai/code-quality-check/issues/10)) ([f6b2d3b](https://github.com/elementx-ai/code-quality-check/commit/f6b2d3bb016929db6c49b152e2921299ef389abc))
+
 ## [0.3.1](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.3.0...code-quality-check-v0.3.1) (2026-03-17)
 
 
