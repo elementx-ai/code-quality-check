@@ -297,6 +297,52 @@ test("detectPythonRuff returns false when Ruff is not referenced", () => {
   );
 });
 
+test("discoverProjects finds Terraform projects with .tf files in nested subdirectories of module", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-tf-nested-"));
+
+  try {
+    await fs.mkdir(path.join(tempDirectory, "module", "vpc"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDirectory, "module", "vpc", "main.tf"),
+      'resource "aws_vpc" "main" {}\n'
+    );
+
+    const { projects, misplacedTerraformFiles } = await discoverProjects(tempDirectory, { includeRoot: true });
+
+    assert.deepEqual(misplacedTerraformFiles, []);
+    assert.deepEqual(
+      projects.map((project) => project.relativePath),
+      ["module"]
+    );
+    assert.equal(projects[0].targets[0].ecosystem, "terraform");
+  } finally {
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("discoverProjects finds Terraform projects with .tf files in nested subdirectories of tf", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-tf-nested2-"));
+
+  try {
+    await fs.mkdir(path.join(tempDirectory, "tf", "modules", "s3"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDirectory, "tf", "modules", "s3", "main.tf"),
+      'resource "aws_s3_bucket" "example" {}\n'
+    );
+
+    const { projects, misplacedTerraformFiles } = await discoverProjects(tempDirectory, { includeRoot: true });
+
+    assert.deepEqual(misplacedTerraformFiles, []);
+    assert.deepEqual(
+      projects.map((project) => project.relativePath),
+      ["tf"]
+    );
+    assert.equal(projects[0].targets[0].ecosystem, "terraform");
+  } finally {
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
 test("discoverProjects finds Terraform projects in root-level tf directories when includeRoot is false", async () => {
   const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-tf-root-"));
 

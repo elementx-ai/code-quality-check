@@ -44,17 +44,26 @@ else
   echo "has_python=false" >> "$GITHUB_OUTPUT"
 fi
 
-# Check if any tf or module directory contains .tf files
+# Check if root directory has .tf files or any tf or module directory contains .tf files (recursively)
 has_terraform=false
-for dir_name in tf module; do
-  if [[ "$has_terraform" == "true" ]]; then
-    break
-  fi
-  while IFS= read -r tf_dir; do
-    if find "$tf_dir" -maxdepth 1 -name '*.tf' -print -quit | grep -q .; then
-      has_terraform=true
+if find "$working_directory" -maxdepth 1 -name '*.tf' -print -quit | grep -q .; then
+  has_terraform=true
+fi
+if [[ "$has_terraform" == "false" ]]; then
+  for dir_name in tf module; do
+    if [[ "$has_terraform" == "true" ]]; then
       break
     fi
-  done < <(find "${find_args[@]}" -type d -name "$dir_name" -print 2>/dev/null)
-done
+    while IFS= read -r tf_dir; do
+      if find "$tf_dir" \
+        "(" -name .git -o -name node_modules -o -name dist -o -name build \
+        -o -name coverage -o -name .venv -o -name venv -o -name .next \
+        -o -name .nuxt -o -name .yarn -o -name .pnpm-store -o -name out \
+        -o -name target ")" -prune -o -name '*.tf' -print -quit | grep -q .; then
+        has_terraform=true
+        break
+      fi
+    done < <(find "${find_args[@]}" -type d -name "$dir_name" -print 2>/dev/null)
+  done
+fi
 echo "has_terraform=$has_terraform" >> "$GITHUB_OUTPUT"
