@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { Project, ProjectTarget, RepoMode } from "./types";
 
-const TERRAFORM_DIRECTORIES = new Set(["tf", "module"]);
+const TERRAFORM_DIRECTORIES = new Set(["tf", "tf-global", "module", "shared"]);
 
 const IGNORED_DIRECTORIES = new Set([
   ".git",

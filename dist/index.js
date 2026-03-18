@@ -15,7 +15,7 @@ exports.detectRepoMode = detectRepoMode;
 exports.detectPythonRuff = detectPythonRuff;
 const node_fs_1 = __nccwpck_require__(3024);
 const node_path_1 = __importDefault(__nccwpck_require__(6760));
-const TERRAFORM_DIRECTORIES = new Set(["tf", "module"]);
+const TERRAFORM_DIRECTORIES = new Set(["tf", "tf-global", "module", "shared"]);
 const IGNORED_DIRECTORIES = new Set([
     ".git",
     ".hg",
