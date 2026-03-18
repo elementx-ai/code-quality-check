@@ -180,7 +180,7 @@ test("runProjects installs workspace dependencies once from the root", async () 
   }
 });
 
-test("runProjects skips auto-install for node projects with no runnable scripts", async () => {
+test("runProjects fails when required Node scripts are missing and skips auto-install", async () => {
   const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-no-install-"));
   const calls = [];
 
@@ -386,9 +386,7 @@ test("runProjects runs terraform format and lint commands", async () => {
         {
           ecosystem: "terraform",
           manifestPath: "/tmp/infra/tf",
-          metadata: {
-            tfDirectory: "/tmp/infra/tf"
-          }
+          metadata: {}
         }
       ]
     }
@@ -491,6 +489,8 @@ test("selectProjectsForExecution uses merge-base for pull requests", async () =>
         nodeInstallCommand: "npm ci",
         pythonFormatCommand: "uv run ruff format --check .",
         pythonLintCommand: "uv run ruff check .",
+        terraformFormatCommand: "terraform fmt -check -recursive",
+        terraformLintCommand: "tflint --recursive",
         workingDirectory: tempDirectory
       }
     );
@@ -526,6 +526,8 @@ test("selectProjectsForExecution surfaces actionable merge-base errors", async (
           nodeInstallCommand: "npm ci",
           pythonFormatCommand: "uv run ruff format --check .",
           pythonLintCommand: "uv run ruff check .",
+          terraformFormatCommand: "terraform fmt -check -recursive",
+          terraformLintCommand: "tflint --recursive",
           workingDirectory: tempDirectory
         }),
       /Ensure both refs are present in the local checkout\. Use fetch-depth: 0/

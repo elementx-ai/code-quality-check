@@ -265,7 +265,10 @@ function projectHasRunnableNodeTarget(project: Project): boolean {
       return false;
     }
 
-    return NODE_SCRIPT_ORDER.some((scriptName) => scriptName in target.metadata.scripts);
+    for (const scriptName of REQUIRED_NODE_SCRIPTS) {
+      if (!(scriptName in target.metadata.scripts)) return false;
+    }
+    return true;
   });
 }
 

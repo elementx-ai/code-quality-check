@@ -80,7 +80,8 @@ export async function discoverProjects(
       }
     }
 
-    const isInsideTerraformDirectory = currentDirectory
+    const relativeToCwd = path.relative(workingDirectory, currentDirectory);
+    const isInsideTerraformDirectory = relativeToCwd
       .split(path.sep)
       .some((segment) => TERRAFORM_DIRECTORIES.has(segment));
 
@@ -108,7 +109,7 @@ export async function discoverProjects(
       }
 
       if (TERRAFORM_DIRECTORIES.has(entry.name)) {
-        if (shouldDiscover) {
+        if (withinDepth) {
           const tfDirectory = path.join(currentDirectory, entry.name);
           if (await hasTerraformFiles(tfDirectory)) {
             addProjectTarget(discovered, workingDirectory, tfDirectory, {

@@ -293,3 +293,23 @@ test("detectPythonRuff returns false when Ruff is not referenced", () => {
     false
   );
 });
+
+test("discoverProjects finds Terraform projects in root-level tf directories when includeRoot is false", async () => {
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-tf-root-"));
+
+  try {
+    await fs.mkdir(path.join(tempDirectory, "tf"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDirectory, "tf", "main.tf"),
+      'resource "aws_s3_bucket" "example" {}\n'
+    );
+
+    const { projects } = await discoverProjects(tempDirectory, { includeRoot: false });
+
+    assert.equal(projects.length, 1);
+    assert.equal(projects[0].relativePath, "tf");
+    assert.equal(projects[0].targets[0].ecosystem, "terraform");
+  } finally {
+    await fs.rm(tempDirectory, { recursive: true, force: true });
+  }
+});
