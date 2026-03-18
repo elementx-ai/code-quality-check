@@ -27846,13 +27846,6 @@ const main = async () => {
         coreExports.setFailed(`Checks failed for project(s): ${runSummary.failedProjectPaths.join(", ")}`);
     }
 };
-main().catch((error) => {
-    if (error instanceof Error) {
-        coreExports.setFailed(error.message);
-        return;
-    }
-    coreExports.setFailed(String(error));
-});
 const readStringInput = (name, envName, fallback) => {
     const envValue = process.env[envName];
     if (envValue !== undefined && envValue !== "") {
@@ -27905,3 +27898,10 @@ const setExecutionOutputs = (passedProjectPaths, failedProjectPaths, executionRe
     coreExports.setOutput("failed_project_paths", JSON.stringify(failedProjectPaths));
     coreExports.setOutput("execution_results", JSON.stringify(executionResults));
 };
+main().catch((error) => {
+    if (error instanceof Error) {
+        coreExports.setFailed(error.message);
+        return;
+    }
+    coreExports.setFailed(String(error));
+});
