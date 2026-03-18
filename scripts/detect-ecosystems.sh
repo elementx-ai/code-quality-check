@@ -11,8 +11,7 @@ if [[ ! -d "$working_directory" ]]; then
   exit 0
 fi
 
-find_args=(
-  "$working_directory"
+find_prune_args=(
   "("
   -name .git
   -o -name node_modules
@@ -27,9 +26,15 @@ find_args=(
   -o -name .pnpm-store
   -o -name out
   -o -name target
+  -o -name .terraform
   ")"
   -prune
   -o
+)
+
+find_args=(
+  "$working_directory"
+  "${find_prune_args[@]}"
 )
 
 if find "${find_args[@]}" -name package.json -print -quit | grep -q .; then
@@ -56,10 +61,8 @@ if [[ "$has_terraform" == "false" ]]; then
     fi
     while IFS= read -r tf_dir; do
       if find "$tf_dir" \
-        "(" -name .git -o -name node_modules -o -name dist -o -name build \
-        -o -name coverage -o -name .venv -o -name venv -o -name .next \
-        -o -name .nuxt -o -name .yarn -o -name .pnpm-store -o -name out \
-        -o -name target ")" -prune -o -name '*.tf' -print -quit | grep -q .; then
+        "${find_prune_args[@]}" \
+        -name '*.tf' -print -quit | grep -q .; then
         has_terraform=true
         break
       fi
