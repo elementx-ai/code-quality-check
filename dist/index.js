@@ -68,7 +68,8 @@ async function discoverProjects(workingDirectory, options) {
                 });
             }
         }
-        const isInsideTerraformDirectory = currentDirectory
+        const relativeToCwd = node_path_1.default.relative(workingDirectory, currentDirectory);
+        const isInsideTerraformDirectory = relativeToCwd
             .split(node_path_1.default.sep)
             .some((segment) => TERRAFORM_DIRECTORIES.has(segment));
         if (!isRoot && !isInsideTerraformDirectory) {
@@ -540,7 +541,11 @@ function projectHasRunnableNodeTarget(project) {
         if (target.ecosystem !== "node") {
             return false;
         }
-        return Array.from(REQUIRED_NODE_SCRIPTS).every((scriptName) => scriptName in target.metadata.scripts);
+        for (const scriptName of REQUIRED_NODE_SCRIPTS) {
+            if (!(scriptName in target.metadata.scripts))
+                return false;
+        }
+        return true;
     });
 }
 async function runNodeTarget(relativePath, rootPath, metadata, commandExecutor) {

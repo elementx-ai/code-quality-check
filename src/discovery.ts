@@ -80,7 +80,8 @@ export async function discoverProjects(
       }
     }
 
-    const isInsideTerraformDirectory = currentDirectory
+    const relativeToCwd = path.relative(workingDirectory, currentDirectory);
+    const isInsideTerraformDirectory = relativeToCwd
       .split(path.sep)
       .some((segment) => TERRAFORM_DIRECTORIES.has(segment));
 

@@ -3,6 +3,7 @@ set -euo pipefail
 
 working_directory="${PROJECT_CHECKS_WORKING_DIRECTORY:-.}"
 
+# Keep these outputs in sync with the detection outputs below.
 if [[ ! -d "$working_directory" ]]; then
   echo "has_node=false" >> "$GITHUB_OUTPUT"
   echo "has_python=false" >> "$GITHUB_OUTPUT"

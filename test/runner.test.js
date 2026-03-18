@@ -489,6 +489,8 @@ test("selectProjectsForExecution uses merge-base for pull requests", async () =>
         nodeInstallCommand: "npm ci",
         pythonFormatCommand: "uv run ruff format --check .",
         pythonLintCommand: "uv run ruff check .",
+        terraformFormatCommand: "terraform fmt -check -recursive",
+        terraformLintCommand: "tflint --recursive",
         workingDirectory: tempDirectory
       }
     );
@@ -524,6 +526,8 @@ test("selectProjectsForExecution surfaces actionable merge-base errors", async (
           nodeInstallCommand: "npm ci",
           pythonFormatCommand: "uv run ruff format --check .",
           pythonLintCommand: "uv run ruff check .",
+          terraformFormatCommand: "terraform fmt -check -recursive",
+          terraformLintCommand: "tflint --recursive",
           workingDirectory: tempDirectory
         }),
       /Ensure both refs are present in the local checkout\. Use fetch-depth: 0/
