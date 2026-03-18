@@ -158,15 +158,6 @@ const main = async (): Promise<void> => {
   }
 };
 
-main().catch((error: unknown) => {
-  if (error instanceof Error) {
-    core.setFailed(error.message);
-    return;
-  }
-
-  core.setFailed(String(error));
-});
-
 const readStringInput = (
   name: string,
   envName: string,
@@ -249,3 +240,12 @@ const setExecutionOutputs = (
   core.setOutput("failed_project_paths", JSON.stringify(failedProjectPaths));
   core.setOutput("execution_results", JSON.stringify(executionResults));
 };
+
+main().catch((error: unknown) => {
+  if (error instanceof Error) {
+    core.setFailed(error.message);
+    return;
+  }
+
+  core.setFailed(String(error));
+});
