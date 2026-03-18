@@ -30,7 +30,10 @@ export type TerraformProjectTarget = {
   metadata: TerraformTargetMetadata;
 };
 
-export type ProjectTarget = NodeProjectTarget | PythonProjectTarget | TerraformProjectTarget;
+export type ProjectTarget =
+  | NodeProjectTarget
+  | PythonProjectTarget
+  | TerraformProjectTarget;
 
 export interface Project {
   rootPath: string;

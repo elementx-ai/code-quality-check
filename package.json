@@ -3,12 +3,14 @@
   "version": "0.4.0",
   "private": true,
   "description": "Reusable GitHub Action for discovering runnable projects and executing standard checks.",
-  "main": "dist/index.js",
+  "main": "index.js",
+  "type": "module",
   "scripts": {
-    "clean": "rm -rf dist lib",
-    "build:lib": "rm -rf lib && tsc -p tsconfig.json",
-    "build": "npm run clean && npm run build:lib && ncc build lib/index.js -o dist && rm -rf lib",
-    "test": "npm run build:lib && node --test test/*.test.js"
+    "clean": "rm -rf dist",
+    "build": "npm run clean && rollup -c",
+    "test": "node --import tsx --test test/*.test.js",
+    "lint": "eslint .",
+    "format": "prettier --write . --ignore-unknown"
   },
   "keywords": [
     "github-action",
@@ -24,8 +26,17 @@
     "@actions/exec": "^1.1.1"
   },
   "devDependencies": {
+    "@elementx-ai/eslint-config": "^9.0.0",
+    "@rollup/plugin-commonjs": "^29.0.2",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "@rollup/plugin-typescript": "^12.3.0",
     "@types/node": "^24.0.0",
-    "@vercel/ncc": "^0.38.3",
+    "eslint": "^9.39.4",
+    "prettier": "^3.8.1",
+    "rollup": "^4.59.0",
+    "tslib": "^2.8.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.8.3"
   }
 }

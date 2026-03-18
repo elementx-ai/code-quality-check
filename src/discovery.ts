@@ -1,11 +1,12 @@
+/* eslint-disable complexity */
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { Project, ProjectTarget, RepoMode } from "./types";
+import { Project, ProjectTarget, RepoMode } from "./types.js";
 
-const TERRAFORM_DIRECTORIES = new Set(["tf", "tf-global", "module", "shared"]);
+const terraformDirectories = new Set(["tf", "tf-global", "module"]);
 
-const IGNORED_DIRECTORIES = new Set([
+const ignoredDirectories = new Set([
   ".git",
   ".hg",
   ".next",
@@ -19,7 +20,7 @@ const IGNORED_DIRECTORIES = new Set([
   "node_modules",
   "out",
   "target",
-  "venv"
+  "venv",
 ]);
 
 interface DiscoverOptions {
@@ -32,10 +33,10 @@ export interface DiscoveryResult {
   projects: Project[];
 }
 
-export async function discoverProjects(
+export const discoverProjects = async (
   workingDirectory: string,
-  options: DiscoverOptions
-): Promise<DiscoveryResult> {
+  options: DiscoverOptions,
+): Promise<DiscoveryResult> => {
   const discovered = new Map<string, Project>();
   const misplacedTerraformFiles: string[] = [];
   const maxDepth =
@@ -43,17 +44,23 @@ export async function discoverProjects(
       ? undefined
       : options.projectDepth;
 
-  async function walk(currentDirectory: string, depth: number): Promise<void> {
+  const walk = async (
+    currentDirectory: string,
+    depth: number,
+  ): Promise<void> => {
     const entries = await fs.readdir(currentDirectory, { withFileTypes: true });
     const entryNames = new Set(entries.map((entry) => entry.name));
-    const isRoot = path.resolve(currentDirectory) === path.resolve(workingDirectory);
+    const isRoot =
+      path.resolve(currentDirectory) === path.resolve(workingDirectory);
     const withinDepth = maxDepth === undefined || depth <= maxDepth;
     const shouldDiscover = withinDepth && !(isRoot && !options.includeRoot);
 
     if (shouldDiscover) {
       if (entryNames.has("package.json")) {
         const manifestPath = path.join(currentDirectory, "package.json");
-        const packageJson = JSON.parse(await fs.readFile(manifestPath, "utf8")) as {
+        const packageJson = JSON.parse(
+          await fs.readFile(manifestPath, "utf8"),
+        ) as {
           scripts?: Record<string, string>;
         };
 
@@ -61,8 +68,8 @@ export async function discoverProjects(
           ecosystem: "node",
           manifestPath,
           metadata: {
-            scripts: packageJson.scripts ?? {}
-          }
+            scripts: packageJson.scripts ?? {},
+          },
         });
       }
 
@@ -74,16 +81,16 @@ export async function discoverProjects(
           ecosystem: "python",
           manifestPath,
           metadata: {
-            hasRuff: detectPythonRuff(pyprojectContent)
-          }
+            hasRuff: detectPythonRuff(pyprojectContent),
+          },
         });
       }
 
-      if (isRoot && await hasTerraformFiles(currentDirectory, false)) {
+      if (isRoot && (await hasTerraformFiles(currentDirectory, false))) {
         addProjectTarget(discovered, workingDirectory, currentDirectory, {
           ecosystem: "terraform",
           manifestPath: currentDirectory,
-          metadata: {}
+          metadata: {},
         });
       }
     }
@@ -91,13 +98,16 @@ export async function discoverProjects(
     const relativeToCwd = path.relative(workingDirectory, currentDirectory);
     const isInsideTerraformDirectory = relativeToCwd
       .split(path.sep)
-      .some((segment) => TERRAFORM_DIRECTORIES.has(segment));
+      .some((segment) => terraformDirectories.has(segment));
 
     if (!isRoot && !isInsideTerraformDirectory) {
       for (const entry of entries) {
         if (!entry.isDirectory() && entry.name.endsWith(".tf")) {
           misplacedTerraformFiles.push(
-            normalizeRelativePath(workingDirectory, path.join(currentDirectory, entry.name))
+            normalizeRelativePath(
+              workingDirectory,
+              path.join(currentDirectory, entry.name),
+            ),
           );
         }
       }
@@ -112,18 +122,18 @@ export async function discoverProjects(
         continue;
       }
 
-      if (IGNORED_DIRECTORIES.has(entry.name)) {
+      if (ignoredDirectories.has(entry.name)) {
         continue;
       }
 
-      if (TERRAFORM_DIRECTORIES.has(entry.name)) {
+      if (terraformDirectories.has(entry.name)) {
         if (withinDepth) {
           const tfDirectory = path.join(currentDirectory, entry.name);
           if (await hasTerraformFiles(tfDirectory)) {
             addProjectTarget(discovered, workingDirectory, tfDirectory, {
               ecosystem: "terraform",
               manifestPath: tfDirectory,
-              metadata: {}
+              metadata: {},
             });
           }
         }
@@ -132,19 +142,19 @@ export async function discoverProjects(
 
       await walk(path.join(currentDirectory, entry.name), depth + 1);
     }
-  }
+  };
 
   await walk(workingDirectory, 0);
 
   return {
     misplacedTerraformFiles: misplacedTerraformFiles.sort(),
     projects: Array.from(discovered.values()).sort((left, right) =>
-      left.relativePath.localeCompare(right.relativePath)
-    )
+      left.relativePath.localeCompare(right.relativePath),
+    ),
   };
-}
+};
 
-export function detectRepoMode(projects: Project[]): RepoMode {
+export const detectRepoMode = (projects: Project[]): RepoMode => {
   if (projects.length === 0) {
     return "empty";
   }
@@ -154,21 +164,18 @@ export function detectRepoMode(projects: Project[]): RepoMode {
   }
 
   return "monorepo";
-}
+};
 
-export function detectPythonRuff(pyprojectContent: string): boolean {
-  return (
-    /\[tool\.ruff(?:\.|])/m.test(pyprojectContent) ||
-    /\bruff\b/m.test(pyprojectContent)
-  );
-}
+export const detectPythonRuff = (pyprojectContent: string): boolean =>
+  /\[tool\.ruff(?:\.|])/m.test(pyprojectContent) ||
+  /\bruff\b/m.test(pyprojectContent);
 
-function addProjectTarget(
+const addProjectTarget = (
   discovered: Map<string, Project>,
   workingDirectory: string,
   projectRoot: string,
-  target: ProjectTarget
-): void {
+  target: ProjectTarget,
+): void => {
   const absoluteRoot = path.resolve(projectRoot);
   const existing = discovered.get(absoluteRoot);
 
@@ -181,18 +188,25 @@ function addProjectTarget(
   discovered.set(absoluteRoot, {
     rootPath: absoluteRoot,
     relativePath,
-    targets: [target]
+    targets: [target],
   });
-}
+};
 
-async function hasTerraformFiles(directory: string, recursive = true): Promise<boolean> {
+const hasTerraformFiles = async (
+  directory: string,
+  recursive = true,
+): Promise<boolean> => {
   try {
     const entries = await fs.readdir(directory, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory() && entry.name.endsWith(".tf")) {
         return true;
       }
-      if (recursive && entry.isDirectory() && !IGNORED_DIRECTORIES.has(entry.name)) {
+      if (
+        recursive &&
+        entry.isDirectory() &&
+        !ignoredDirectories.has(entry.name)
+      ) {
         if (await hasTerraformFiles(path.join(directory, entry.name))) {
           return true;
         }
@@ -202,9 +216,9 @@ async function hasTerraformFiles(directory: string, recursive = true): Promise<b
   } catch {
     return false;
   }
-}
+};
 
-function normalizeRelativePath(from: string, to: string): string {
+const normalizeRelativePath = (from: string, to: string): string => {
   const relative = path.relative(from, to);
 
   if (!relative) {
@@ -212,4 +226,4 @@ function normalizeRelativePath(from: string, to: string): string {
   }
 
   return relative.split(path.sep).join(path.posix.sep);
-}
+};
