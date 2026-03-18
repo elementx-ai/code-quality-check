@@ -78,6 +78,14 @@ export async function discoverProjects(
           }
         });
       }
+
+      if (isRoot && await hasTerraformFiles(currentDirectory)) {
+        addProjectTarget(discovered, workingDirectory, currentDirectory, {
+          ecosystem: "terraform",
+          manifestPath: currentDirectory,
+          metadata: {}
+        });
+      }
     }
 
     const relativeToCwd = path.relative(workingDirectory, currentDirectory);

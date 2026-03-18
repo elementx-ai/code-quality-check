@@ -203,7 +203,7 @@ test("discoverProjects does not flag .tf files inside module directories as misp
   }
 });
 
-test("discoverProjects allows .tf files at the root directory", async () => {
+test("discoverProjects discovers root-level .tf files as a Terraform project", async () => {
   const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-root-tf-"));
 
   try {
@@ -212,9 +212,12 @@ test("discoverProjects allows .tf files at the root directory", async () => {
       'resource "aws_s3_bucket" "example" {}\n'
     );
 
-    const { misplacedTerraformFiles } = await discoverProjects(tempDirectory, { includeRoot: true });
+    const { projects, misplacedTerraformFiles } = await discoverProjects(tempDirectory, { includeRoot: true });
 
     assert.deepEqual(misplacedTerraformFiles, []);
+    assert.equal(projects.length, 1);
+    assert.equal(projects[0].relativePath, ".");
+    assert.equal(projects[0].targets[0].ecosystem, "terraform");
   } finally {
     await fs.rm(tempDirectory, { recursive: true, force: true });
   }

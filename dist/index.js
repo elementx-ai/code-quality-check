@@ -67,6 +67,13 @@ async function discoverProjects(workingDirectory, options) {
                     }
                 });
             }
+            if (isRoot && await hasTerraformFiles(currentDirectory)) {
+                addProjectTarget(discovered, workingDirectory, currentDirectory, {
+                    ecosystem: "terraform",
+                    manifestPath: currentDirectory,
+                    metadata: {}
+                });
+            }
         }
         const relativeToCwd = node_path_1.default.relative(workingDirectory, currentDirectory);
         const isInsideTerraformDirectory = relativeToCwd
@@ -223,7 +230,7 @@ async function main() {
         projectDepth
     });
     if (misplacedTerraformFiles.length > 0) {
-        throw new Error(`Terraform files must be placed in a directory named "tf" or "module". ` +
+        throw new Error(`Terraform files must be placed at the repository root or in a directory named "tf" or "module". ` +
             `Found misplaced .tf file(s): ${misplacedTerraformFiles.join(", ")}`);
     }
     const repoMode = (0, discovery_1.detectRepoMode)(projects);
