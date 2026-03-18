@@ -1,10 +1,14 @@
-const assert = require("node:assert/strict");
-const fs = require("node:fs/promises");
-const os = require("node:os");
-const path = require("node:path");
-const test = require("node:test");
+import assert from "node:assert/strict";
+import { execFile as execFileCb } from "node:child_process";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { promisify } from "node:util";
 
-const { runProjects, selectProjectsForExecution } = require("../lib/runner.js");
+import { runProjects, selectProjectsForExecution } from "../src/runner.js";
+
+const execFile = promisify(execFileCb);
 
 test("runProjects returns passed and failed project paths", async () => {
   const calls = [];
@@ -19,11 +23,11 @@ test("runProjects returns passed and failed project paths", async () => {
           metadata: {
             scripts: {
               format: "prettier .",
-              lint: "eslint ."
-            }
-          }
-        }
-      ]
+              lint: "eslint .",
+            },
+          },
+        },
+      ],
     },
     {
       rootPath: "/tmp/api",
@@ -33,20 +37,20 @@ test("runProjects returns passed and failed project paths", async () => {
           ecosystem: "python",
           manifestPath: "/tmp/api/pyproject.toml",
           metadata: {
-            hasRuff: true
-          }
-        }
-      ]
-    }
+            hasRuff: true,
+          },
+        },
+      ],
+    },
   ];
 
-  async function commandExecutor(commandLine, args, cwd) {
+  const commandExecutor = async (commandLine, args, cwd) => {
     calls.push({ args, commandLine, cwd });
 
     if (cwd === "/tmp/evaluator" && args[1] === "lint") {
       throw new Error("lint failed");
     }
-  }
+  };
 
   const summary = await runProjects(
     projects,
@@ -59,9 +63,9 @@ test("runProjects returns passed and failed project paths", async () => {
       pythonLintCommand: "uv run ruff check .",
       terraformFormatCommand: "terraform fmt -check -recursive",
       terraformLintCommand: "tflint --recursive",
-      workingDirectory: "/tmp"
+      workingDirectory: "/tmp",
     },
-    commandExecutor
+    commandExecutor,
   );
 
   assert.deepEqual(summary.passedProjectPaths, ["api"]);
@@ -71,57 +75,65 @@ test("runProjects returns passed and failed project paths", async () => {
       ecosystems: ["node"],
       error: "lint failed",
       path: "evaluator",
-      status: "failed"
+      status: "failed",
     },
     {
       ecosystems: ["python"],
       path: "api",
-      status: "passed"
-    }
+      status: "passed",
+    },
   ]);
   assert.deepEqual(calls, [
     {
       args: ["run", "format"],
       commandLine: "npm",
-      cwd: "/tmp/evaluator"
+      cwd: "/tmp/evaluator",
     },
     {
       args: ["run", "lint"],
       commandLine: "npm",
-      cwd: "/tmp/evaluator"
+      cwd: "/tmp/evaluator",
     },
     {
       args: ["run", "ruff", "format", "--check", "."],
       commandLine: "uv",
-      cwd: "/tmp/api"
+      cwd: "/tmp/api",
     },
     {
       args: ["run", "ruff", "check", "."],
       commandLine: "uv",
-      cwd: "/tmp/api"
-    }
+      cwd: "/tmp/api",
+    },
   ]);
 });
 
 test("runProjects installs workspace dependencies once from the root", async () => {
-  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-install-"));
+  const tempDirectory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "project-checks-install-"),
+  );
   const calls = [];
 
   try {
     await fs.writeFile(
       path.join(tempDirectory, "package.json"),
-      JSON.stringify({ workspaces: ["packages/*"] }, null, 2)
+      JSON.stringify({ workspaces: ["packages/*"] }, null, 2),
     );
     await fs.writeFile(path.join(tempDirectory, "package-lock.json"), "{}");
-    await fs.mkdir(path.join(tempDirectory, "packages", "evaluator"), { recursive: true });
+    await fs.mkdir(path.join(tempDirectory, "packages", "evaluator"), {
+      recursive: true,
+    });
     await fs.writeFile(
       path.join(tempDirectory, "packages", "evaluator", "package.json"),
-      JSON.stringify({ scripts: { format: "prettier .", lint: "eslint ." } }, null, 2)
+      JSON.stringify(
+        { scripts: { format: "prettier .", lint: "eslint ." } },
+        null,
+        2,
+      ),
     );
 
-    async function commandExecutor(commandLine, args, cwd) {
+    const commandExecutor = async (commandLine, args, cwd) => {
       calls.push({ args, commandLine, cwd });
-    }
+    };
 
     const summary = await runProjects(
       [
@@ -131,16 +143,21 @@ test("runProjects installs workspace dependencies once from the root", async () 
           targets: [
             {
               ecosystem: "node",
-              manifestPath: path.join(tempDirectory, "packages", "evaluator", "package.json"),
+              manifestPath: path.join(
+                tempDirectory,
+                "packages",
+                "evaluator",
+                "package.json",
+              ),
               metadata: {
                 scripts: {
                   format: "prettier .",
-                  lint: "eslint ."
-                }
-              }
-            }
-          ]
-        }
+                  lint: "eslint .",
+                },
+              },
+            },
+          ],
+        },
       ],
       {
         autoInstall: true,
@@ -151,9 +168,9 @@ test("runProjects installs workspace dependencies once from the root", async () 
         pythonLintCommand: "uv run ruff check .",
         terraformFormatCommand: "terraform fmt -check -recursive",
         terraformLintCommand: "tflint --recursive",
-        workingDirectory: tempDirectory
+        workingDirectory: tempDirectory,
       },
-      commandExecutor
+      commandExecutor,
     );
 
     assert.deepEqual(summary.passedProjectPaths, ["packages/evaluator"]);
@@ -162,18 +179,18 @@ test("runProjects installs workspace dependencies once from the root", async () 
       {
         args: ["ci"],
         commandLine: "npm",
-        cwd: tempDirectory
+        cwd: tempDirectory,
       },
       {
         args: ["run", "format"],
         commandLine: "npm",
-        cwd: path.join(tempDirectory, "packages", "evaluator")
+        cwd: path.join(tempDirectory, "packages", "evaluator"),
       },
       {
         args: ["run", "lint"],
         commandLine: "npm",
-        cwd: path.join(tempDirectory, "packages", "evaluator")
-      }
+        cwd: path.join(tempDirectory, "packages", "evaluator"),
+      },
     ]);
   } finally {
     await fs.rm(tempDirectory, { recursive: true, force: true });
@@ -181,15 +198,17 @@ test("runProjects installs workspace dependencies once from the root", async () 
 });
 
 test("runProjects fails when required Node scripts are missing and skips auto-install", async () => {
-  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-no-install-"));
+  const tempDirectory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "project-checks-no-install-"),
+  );
   const calls = [];
 
   try {
     await fs.writeFile(path.join(tempDirectory, "package-lock.json"), "{}");
 
-    async function commandExecutor(commandLine, args, cwd) {
+    const commandExecutor = async (commandLine, args, cwd) => {
       calls.push({ args, commandLine, cwd });
-    }
+    };
 
     const summary = await runProjects(
       [
@@ -201,11 +220,11 @@ test("runProjects fails when required Node scripts are missing and skips auto-in
               ecosystem: "node",
               manifestPath: path.join(tempDirectory, "package.json"),
               metadata: {
-                scripts: {}
-              }
-            }
-          ]
-        }
+                scripts: {},
+              },
+            },
+          ],
+        },
       ],
       {
         autoInstall: true,
@@ -216,9 +235,9 @@ test("runProjects fails when required Node scripts are missing and skips auto-in
         pythonLintCommand: "uv run ruff check .",
         terraformFormatCommand: "terraform fmt -check -recursive",
         terraformLintCommand: "tflint --recursive",
-        workingDirectory: tempDirectory
+        workingDirectory: tempDirectory,
       },
-      commandExecutor
+      commandExecutor,
     );
 
     assert.deepEqual(summary.passedProjectPaths, []);
@@ -243,17 +262,17 @@ test("runProjects fails when a required Node script is missing", async () => {
           metadata: {
             scripts: {
               test: "vitest",
-              build: "tsc"
-            }
-          }
-        }
-      ]
-    }
+              build: "tsc",
+            },
+          },
+        },
+      ],
+    },
   ];
 
-  async function commandExecutor(commandLine, args, cwd) {
+  const commandExecutor = async (commandLine, args, cwd) => {
     calls.push({ args, commandLine, cwd });
-  }
+  };
 
   const summary = await runProjects(
     projects,
@@ -266,9 +285,9 @@ test("runProjects fails when a required Node script is missing", async () => {
       pythonLintCommand: "uv run ruff check .",
       terraformFormatCommand: "terraform fmt -check -recursive",
       terraformLintCommand: "tflint --recursive",
-      workingDirectory: "/tmp"
+      workingDirectory: "/tmp",
     },
-    commandExecutor
+    commandExecutor,
   );
 
   assert.deepEqual(summary.failedProjectPaths, ["app"]);
@@ -289,17 +308,17 @@ test("runProjects fails when format script does not use prettier", async () => {
           metadata: {
             scripts: {
               format: "biome format .",
-              lint: "eslint ."
-            }
-          }
-        }
-      ]
-    }
+              lint: "eslint .",
+            },
+          },
+        },
+      ],
+    },
   ];
 
-  async function commandExecutor(commandLine, args, cwd) {
+  const commandExecutor = async (commandLine, args, cwd) => {
     calls.push({ args, commandLine, cwd });
-  }
+  };
 
   const summary = await runProjects(
     projects,
@@ -312,13 +331,13 @@ test("runProjects fails when format script does not use prettier", async () => {
       pythonLintCommand: "uv run ruff check .",
       terraformFormatCommand: "terraform fmt -check -recursive",
       terraformLintCommand: "tflint --recursive",
-      workingDirectory: "/tmp"
+      workingDirectory: "/tmp",
     },
-    commandExecutor
+    commandExecutor,
   );
 
   assert.deepEqual(summary.failedProjectPaths, ["app"]);
-  assert.ok(summary.results[0].error.includes('must use prettier'));
+  assert.ok(summary.results[0].error.includes("must use prettier"));
   assert.ok(summary.results[0].error.includes("biome format ."));
   assert.deepEqual(calls, []);
 });
@@ -336,17 +355,17 @@ test("runProjects fails when lint script does not use eslint", async () => {
           metadata: {
             scripts: {
               format: "prettier --check .",
-              lint: "biome lint ."
-            }
-          }
-        }
-      ]
-    }
+              lint: "biome lint .",
+            },
+          },
+        },
+      ],
+    },
   ];
 
-  async function commandExecutor(commandLine, args, cwd) {
+  const commandExecutor = async (commandLine, args, cwd) => {
     calls.push({ args, commandLine, cwd });
-  }
+  };
 
   const summary = await runProjects(
     projects,
@@ -359,20 +378,20 @@ test("runProjects fails when lint script does not use eslint", async () => {
       pythonLintCommand: "uv run ruff check .",
       terraformFormatCommand: "terraform fmt -check -recursive",
       terraformLintCommand: "tflint --recursive",
-      workingDirectory: "/tmp"
+      workingDirectory: "/tmp",
     },
-    commandExecutor
+    commandExecutor,
   );
 
   assert.deepEqual(summary.failedProjectPaths, ["app"]);
-  assert.ok(summary.results[0].error.includes('must use eslint'));
+  assert.ok(summary.results[0].error.includes("must use eslint"));
   assert.ok(summary.results[0].error.includes("biome lint ."));
   assert.deepEqual(calls, [
     {
       args: ["run", "format"],
       commandLine: "npm",
-      cwd: "/tmp/app"
-    }
+      cwd: "/tmp/app",
+    },
   ]);
 });
 
@@ -386,15 +405,15 @@ test("runProjects runs terraform format and lint commands", async () => {
         {
           ecosystem: "terraform",
           manifestPath: "/tmp/infra/tf",
-          metadata: {}
-        }
-      ]
-    }
+          metadata: {},
+        },
+      ],
+    },
   ];
 
-  async function commandExecutor(commandLine, args, cwd) {
+  const commandExecutor = async (commandLine, args, cwd) => {
     calls.push({ args, commandLine, cwd });
-  }
+  };
 
   const summary = await runProjects(
     projects,
@@ -407,9 +426,9 @@ test("runProjects runs terraform format and lint commands", async () => {
       pythonLintCommand: "uv run ruff check .",
       terraformFormatCommand: "terraform fmt -check -recursive",
       terraformLintCommand: "tflint --recursive",
-      workingDirectory: "/tmp"
+      workingDirectory: "/tmp",
     },
-    commandExecutor
+    commandExecutor,
   );
 
   assert.deepEqual(summary.passedProjectPaths, ["infra/tf"]);
@@ -418,26 +437,30 @@ test("runProjects runs terraform format and lint commands", async () => {
     {
       args: ["fmt", "-check", "-recursive"],
       commandLine: "terraform",
-      cwd: "/tmp/infra/tf"
+      cwd: "/tmp/infra/tf",
     },
     {
       args: ["--recursive"],
       commandLine: "tflint",
-      cwd: "/tmp/infra/tf"
-    }
+      cwd: "/tmp/infra/tf",
+    },
   ]);
 });
 
 test("selectProjectsForExecution uses merge-base for pull requests", async () => {
-  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-pr-diff-"));
+  const tempDirectory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "project-checks-pr-diff-"),
+  );
   const previousEventName = process.env.GITHUB_EVENT_NAME;
 
   try {
     await fs.mkdir(path.join(tempDirectory, "evaluator"), { recursive: true });
-    await fs.mkdir(path.join(tempDirectory, ".github", "workflows"), { recursive: true });
+    await fs.mkdir(path.join(tempDirectory, ".github", "workflows"), {
+      recursive: true,
+    });
     await fs.writeFile(
       path.join(tempDirectory, "evaluator", "package.json"),
-      JSON.stringify({ scripts: { lint: "eslint ." } }, null, 2)
+      JSON.stringify({ scripts: { lint: "eslint ." } }, null, 2),
     );
 
     await runGit(tempDirectory, ["init", "-b", "main"]);
@@ -449,14 +472,17 @@ test("selectProjectsForExecution uses merge-base for pull requests", async () =>
     await runGit(tempDirectory, ["checkout", "-b", "feature/pr-only-workflow"]);
 
     await runGit(tempDirectory, ["checkout", "main"]);
-    await fs.writeFile(path.join(tempDirectory, "evaluator", "index.ts"), "export const x = 1;\n");
+    await fs.writeFile(
+      path.join(tempDirectory, "evaluator", "index.ts"),
+      "export const x = 1;\n",
+    );
     await runGit(tempDirectory, ["add", "."]);
     await runGit(tempDirectory, ["commit", "-m", "main changes evaluator"]);
 
     await runGit(tempDirectory, ["checkout", "feature/pr-only-workflow"]);
     await fs.writeFile(
       path.join(tempDirectory, ".github", "workflows", "ci.yml"),
-      "name: ci\n"
+      "name: ci\n",
     );
     await runGit(tempDirectory, ["add", "."]);
     await runGit(tempDirectory, ["commit", "-m", "workflow only"]);
@@ -471,15 +497,19 @@ test("selectProjectsForExecution uses merge-base for pull requests", async () =>
           targets: [
             {
               ecosystem: "node",
-              manifestPath: path.join(tempDirectory, "evaluator", "package.json"),
+              manifestPath: path.join(
+                tempDirectory,
+                "evaluator",
+                "package.json",
+              ),
               metadata: {
                 scripts: {
-                  lint: "eslint ."
-                }
-              }
-            }
-          ]
-        }
+                  lint: "eslint .",
+                },
+              },
+            },
+          ],
+        },
       ],
       {
         autoInstall: false,
@@ -491,8 +521,8 @@ test("selectProjectsForExecution uses merge-base for pull requests", async () =>
         pythonLintCommand: "uv run ruff check .",
         terraformFormatCommand: "terraform fmt -check -recursive",
         terraformLintCommand: "tflint --recursive",
-        workingDirectory: tempDirectory
-      }
+        workingDirectory: tempDirectory,
+      },
     );
 
     assert.deepEqual(summary.changedFiles, [".github/workflows/ci.yml"]);
@@ -509,7 +539,9 @@ test("selectProjectsForExecution uses merge-base for pull requests", async () =>
 });
 
 test("selectProjectsForExecution surfaces actionable merge-base errors", async () => {
-  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "project-checks-pr-error-"));
+  const tempDirectory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "project-checks-pr-error-"),
+  );
   const previousEventName = process.env.GITHUB_EVENT_NAME;
 
   try {
@@ -528,9 +560,9 @@ test("selectProjectsForExecution surfaces actionable merge-base errors", async (
           pythonLintCommand: "uv run ruff check .",
           terraformFormatCommand: "terraform fmt -check -recursive",
           terraformLintCommand: "tflint --recursive",
-          workingDirectory: tempDirectory
+          workingDirectory: tempDirectory,
         }),
-      /Ensure both refs are present in the local checkout\. Use fetch-depth: 0/
+      /Ensure both refs are present in the local checkout\. Use fetch-depth: 0/,
     );
   } finally {
     if (previousEventName === undefined) {
@@ -543,10 +575,6 @@ test("selectProjectsForExecution surfaces actionable merge-base errors", async (
   }
 });
 
-async function runGit(cwd, args) {
-  const { execFile } = require("node:child_process");
-  const { promisify } = require("node:util");
-  const execFileAsync = promisify(execFile);
-
-  await execFileAsync("git", args, { cwd });
-}
+const runGit = async (cwd, args) => {
+  await execFile("git", args, { cwd });
+};

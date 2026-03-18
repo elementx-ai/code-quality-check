@@ -1,15 +1,22 @@
 import * as core from "@actions/core";
 import * as exec from "@actions/exec";
+
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { Ecosystem, NodeTargetMetadata, Project, ProjectTarget, PythonTargetMetadata } from "./types";
+import {
+  Ecosystem,
+  NodeTargetMetadata,
+  Project,
+  ProjectTarget,
+  PythonTargetMetadata,
+} from "./types.js";
 
-const NODE_SCRIPT_ORDER = ["format", "lint", "test", "build"] as const;
-const REQUIRED_NODE_SCRIPTS = new Set<string>(["format", "lint"]);
-const REQUIRED_NODE_TOOLS: Record<string, string> = {
+const nodeScriptOrder = ["format", "lint", "test", "build"] as const;
+const requiredNodeScripts = new Set<string>(["format", "lint"]);
+const requiredNodeTools: Record<string, string> = {
   format: "prettier",
-  lint: "eslint"
+  lint: "eslint",
 };
 
 export interface RunnerInputs {
@@ -47,7 +54,7 @@ type CommandExecutor = (
   commandLine: string,
   args: string[],
   cwd: string,
-  options?: ExecOptions
+  options?: ExecOptions,
 ) => Promise<void>;
 
 interface NodeInstallStep {
@@ -56,49 +63,57 @@ interface NodeInstallStep {
   label: string;
 }
 
-export async function selectProjectsForExecution(
+export const selectProjectsForExecution = async (
   projects: Project[],
-  inputs: RunnerInputs
-): Promise<ExecutionSummary> {
+  inputs: RunnerInputs,
+): Promise<ExecutionSummary> => {
   if (!inputs.changedOnly) {
     return {
       changedFiles: [],
-      selectedProjects: projects
+      selectedProjects: projects,
     };
   }
 
   const baseRef = inputs.baseRef || findDefaultBaseRef();
   if (!baseRef) {
     core.warning(
-      "changed-only was enabled but no base-ref could be resolved. Running checks for all discovered projects."
+      "changed-only was enabled but no base-ref could be resolved. Running checks for all discovered projects.",
     );
 
     return {
       changedFiles: [],
-      selectedProjects: projects
+      selectedProjects: projects,
     };
   }
 
   const gitRoot = await resolveGitRoot(inputs.workingDirectory);
   const diffBase = await resolveDiffBase(gitRoot, baseRef, inputs.headRef);
-  const changedFiles = await resolveChangedFiles(gitRoot, diffBase, inputs.headRef);
-  const selectedProjects = filterProjectsByChanges(projects, gitRoot, changedFiles);
+  const changedFiles = await resolveChangedFiles(
+    gitRoot,
+    diffBase,
+    inputs.headRef,
+  );
+  const selectedProjects = filterProjectsByChanges(
+    projects,
+    gitRoot,
+    changedFiles,
+  );
 
   core.info(
-    `Resolved ${changedFiles.length} changed file(s) between ${diffBase} and ${inputs.headRef}.`
+    `Resolved ${changedFiles.length} changed file(s) between ${diffBase} and ${inputs.headRef}.`,
   );
 
   return {
     changedFiles,
-    selectedProjects
+    selectedProjects,
   };
-}
+};
 
-async function resolveDiffBase(
+const resolveDiffBase = async (
   gitRoot: string,
   baseRef: string,
-  headRef: string
-): Promise<string> {
+  headRef: string,
+): Promise<string> => {
   if (!isPullRequestEvent()) {
     return baseRef;
   }
@@ -106,14 +121,18 @@ async function resolveDiffBase(
   const mergeBase = await resolveMergeBase(gitRoot, baseRef, headRef);
   core.info(`Using merge-base ${mergeBase} for pull request change detection.`);
   return mergeBase;
-}
+};
 
-export async function runProjects(
+export const runProjects = async (
   projects: Project[],
   inputs: RunnerInputs,
-  commandExecutor: CommandExecutor = execCommand
-): Promise<RunProjectsSummary> {
-  const installFailures = await installNodeDependencies(projects, inputs, commandExecutor);
+  commandExecutor: CommandExecutor = execCommand,
+): Promise<RunProjectsSummary> => {
+  const installFailures = await installNodeDependencies(
+    projects,
+    inputs,
+    commandExecutor,
+  );
   const results: ProjectExecutionResult[] = [];
 
   for (const project of projects) {
@@ -124,22 +143,30 @@ export async function runProjects(
         ecosystems: project.targets.map((target) => target.ecosystem),
         error: installFailure,
         path: project.relativePath,
-        status: "failed"
+        status: "failed",
       });
       continue;
     }
 
     const ecosystems = project.targets.map((target) => target.ecosystem);
-    core.startGroup(`Running checks for ${project.relativePath} [${ecosystems.join(", ")}]`);
+    core.startGroup(
+      `Running checks for ${project.relativePath} [${ecosystems.join(", ")}]`,
+    );
 
     try {
       for (const target of project.targets) {
-        await runTarget(project.relativePath, project.rootPath, target, inputs, commandExecutor);
+        await runTarget(
+          project.relativePath,
+          project.rootPath,
+          target,
+          inputs,
+          commandExecutor,
+        );
       }
       results.push({
         ecosystems,
         path: project.relativePath,
-        status: "passed"
+        status: "passed",
       });
     } catch (error: unknown) {
       const message = formatError(error);
@@ -148,7 +175,7 @@ export async function runProjects(
         ecosystems,
         error: message,
         path: project.relativePath,
-        status: "failed"
+        status: "failed",
       });
     } finally {
       core.endGroup();
@@ -162,15 +189,15 @@ export async function runProjects(
     passedProjectPaths: results
       .filter((result) => result.status === "passed")
       .map((result) => result.path),
-    results
+    results,
   };
-}
+};
 
-async function installNodeDependencies(
+const installNodeDependencies = async (
   projects: Project[],
   inputs: RunnerInputs,
-  commandExecutor: CommandExecutor
-): Promise<Map<string, string>> {
+  commandExecutor: CommandExecutor,
+): Promise<Map<string, string>> => {
   if (!inputs.autoInstall) {
     return new Map();
   }
@@ -180,7 +207,10 @@ async function installNodeDependencies(
     return new Map();
   }
 
-  const steps = await resolveNodeInstallSteps(nodeProjects, inputs.workingDirectory);
+  const steps = await resolveNodeInstallSteps(
+    nodeProjects,
+    inputs.workingDirectory,
+  );
   const failures = new Map<string, string>();
 
   for (const step of steps) {
@@ -188,7 +218,11 @@ async function installNodeDependencies(
 
     try {
       core.info(`${step.label}: ${inputs.nodeInstallCommand}`);
-      await execConfiguredCommand(inputs.nodeInstallCommand, step.installPath, commandExecutor);
+      await execConfiguredCommand(
+        inputs.nodeInstallCommand,
+        step.installPath,
+        commandExecutor,
+      );
     } catch (error: unknown) {
       const message = `Dependency install failed: ${formatError(error)}`;
       core.error(`${step.label}: ${message}`);
@@ -202,19 +236,21 @@ async function installNodeDependencies(
   }
 
   return failures;
-}
+};
 
-async function resolveNodeInstallSteps(
+const resolveNodeInstallSteps = async (
   nodeProjects: Project[],
-  workingDirectory: string
-): Promise<NodeInstallStep[]> {
+  workingDirectory: string,
+): Promise<NodeInstallStep[]> => {
   if (await shouldUseRootWorkspaceInstall(workingDirectory)) {
     return [
       {
-        coveredProjectPaths: nodeProjects.map((project) => project.relativePath),
+        coveredProjectPaths: nodeProjects.map(
+          (project) => project.relativePath,
+        ),
         installPath: workingDirectory,
-        label: "."
-      }
+        label: ".",
+      },
     ];
   }
 
@@ -225,79 +261,98 @@ async function resolveNodeInstallSteps(
       steps.push({
         coveredProjectPaths: [project.relativePath],
         installPath: project.rootPath,
-        label: project.relativePath
+        label: project.relativePath,
       });
       continue;
     }
 
     core.info(
-      `${project.relativePath}: skipping automatic npm install because no package-lock.json or npm-shrinkwrap.json was found.`
+      `${project.relativePath}: skipping automatic npm install because no package-lock.json or npm-shrinkwrap.json was found.`,
     );
   }
 
   return steps;
-}
+};
 
-async function runTarget(
+const runTarget = async (
   relativePath: string,
   rootPath: string,
   target: ProjectTarget,
   inputs: RunnerInputs,
-  commandExecutor: CommandExecutor
-): Promise<void> {
+  commandExecutor: CommandExecutor,
+): Promise<void> => {
   switch (target.ecosystem) {
     case "node":
-      return runNodeTarget(relativePath, rootPath, target.metadata, commandExecutor);
+      return runNodeTarget(
+        relativePath,
+        rootPath,
+        target.metadata,
+        commandExecutor,
+      );
     case "python":
-      return runPythonTarget(relativePath, rootPath, target.metadata, inputs, commandExecutor);
+      return runPythonTarget(
+        relativePath,
+        rootPath,
+        target.metadata,
+        inputs,
+        commandExecutor,
+      );
     case "terraform":
-      return runTerraformTarget(relativePath, rootPath, inputs, commandExecutor);
+      return runTerraformTarget(
+        relativePath,
+        rootPath,
+        inputs,
+        commandExecutor,
+      );
     default: {
       const _exhaustive: never = target;
-      throw new Error(`Unknown ecosystem: ${(_exhaustive as ProjectTarget).ecosystem}`);
+      throw new Error(
+        `Unknown ecosystem: ${(_exhaustive as ProjectTarget).ecosystem}`,
+      );
     }
   }
-}
+};
 
-function projectHasRunnableNodeTarget(project: Project): boolean {
-  return project.targets.some((target) => {
+const projectHasRunnableNodeTarget = (project: Project): boolean =>
+  project.targets.some((target) => {
     if (target.ecosystem !== "node") {
       return false;
     }
 
-    for (const scriptName of REQUIRED_NODE_SCRIPTS) {
+    for (const scriptName of requiredNodeScripts) {
       if (!(scriptName in target.metadata.scripts)) return false;
     }
     return true;
   });
-}
 
-async function runNodeTarget(
+const runNodeTarget = async (
   relativePath: string,
   rootPath: string,
   metadata: NodeTargetMetadata,
-  commandExecutor: CommandExecutor
-): Promise<void> {
-  for (const scriptName of NODE_SCRIPT_ORDER) {
+  commandExecutor: CommandExecutor,
+): Promise<void> => {
+  for (const scriptName of nodeScriptOrder) {
     if (!(scriptName in metadata.scripts)) {
-      if (REQUIRED_NODE_SCRIPTS.has(scriptName)) {
+      if (requiredNodeScripts.has(scriptName)) {
         throw new Error(
           `${relativePath}: required script "${scriptName}" is not defined in package.json. ` +
-            `All Node projects must define format and lint scripts.`
+            `All Node projects must define format and lint scripts.`,
         );
       }
 
-      core.info(`${relativePath}: skipping npm run ${scriptName} because the script is not defined.`);
+      core.info(
+        `${relativePath}: skipping npm run ${scriptName} because the script is not defined.`,
+      );
       continue;
     }
 
-    const requiredTool = REQUIRED_NODE_TOOLS[scriptName];
+    const requiredTool = requiredNodeTools[scriptName];
     if (requiredTool) {
       const scriptValue = metadata.scripts[scriptName];
       if (!new RegExp(`\\b${requiredTool}\\b`).test(scriptValue)) {
         throw new Error(
           `${relativePath}: the "${scriptName}" script must use ${requiredTool}, ` +
-            `but found: "${scriptValue}"`
+            `but found: "${scriptValue}"`,
         );
       }
     }
@@ -305,67 +360,83 @@ async function runNodeTarget(
     core.info(`${relativePath}: npm run ${scriptName}`);
     await commandExecutor("npm", ["run", scriptName], rootPath);
   }
-}
+};
 
-async function runPythonTarget(
+const runPythonTarget = async (
   relativePath: string,
   rootPath: string,
   metadata: PythonTargetMetadata,
   inputs: RunnerInputs,
-  commandExecutor: CommandExecutor
-): Promise<void> {
+  commandExecutor: CommandExecutor,
+): Promise<void> => {
   if (!metadata.hasRuff) {
     core.info(
-      `${relativePath}: skipping Python checks because pyproject.toml does not appear to configure or depend on Ruff.`
+      `${relativePath}: skipping Python checks because pyproject.toml does not appear to configure or depend on Ruff.`,
     );
     return;
   }
 
   core.info(`${relativePath}: ${inputs.pythonFormatCommand}`);
-  await execConfiguredCommand(inputs.pythonFormatCommand, rootPath, commandExecutor);
+  await execConfiguredCommand(
+    inputs.pythonFormatCommand,
+    rootPath,
+    commandExecutor,
+  );
 
   core.info(`${relativePath}: ${inputs.pythonLintCommand}`);
-  await execConfiguredCommand(inputs.pythonLintCommand, rootPath, commandExecutor);
-}
+  await execConfiguredCommand(
+    inputs.pythonLintCommand,
+    rootPath,
+    commandExecutor,
+  );
+};
 
-async function runTerraformTarget(
+const runTerraformTarget = async (
   relativePath: string,
   rootPath: string,
   inputs: RunnerInputs,
-  commandExecutor: CommandExecutor
-): Promise<void> {
+  commandExecutor: CommandExecutor,
+): Promise<void> => {
   core.info(`${relativePath}: ${inputs.terraformFormatCommand}`);
-  await execConfiguredCommand(inputs.terraformFormatCommand, rootPath, commandExecutor);
+  await execConfiguredCommand(
+    inputs.terraformFormatCommand,
+    rootPath,
+    commandExecutor,
+  );
 
   core.info(`${relativePath}: ${inputs.terraformLintCommand}`);
-  await execConfiguredCommand(inputs.terraformLintCommand, rootPath, commandExecutor);
-}
+  await execConfiguredCommand(
+    inputs.terraformLintCommand,
+    rootPath,
+    commandExecutor,
+  );
+};
 
-async function resolveGitRoot(workingDirectory: string): Promise<string> {
+const resolveGitRoot = async (workingDirectory: string): Promise<string> => {
   let stdout = "";
 
   await execCommand("git", ["rev-parse", "--show-toplevel"], workingDirectory, {
     silent: true,
     stdout: (data) => {
       stdout += data.toString();
-    }
+    },
   });
 
   return stdout.trim();
-}
+};
 
-async function resolveChangedFiles(
+const resolveChangedFiles = async (
   gitRoot: string,
   baseRef: string,
-  headRef: string
-): Promise<string[]> {
+  headRef: string,
+): Promise<string[]> => {
   let stdout = "";
 
   await execCommand("git", ["diff", "--name-only", baseRef, headRef], gitRoot, {
     silent: true,
     stdout: (data) => {
       stdout += data.toString();
-    }
+    },
   });
 
   return stdout
@@ -373,13 +444,13 @@ async function resolveChangedFiles(
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => line.split(path.sep).join(path.posix.sep));
-}
+};
 
-async function resolveMergeBase(
+const resolveMergeBase = async (
   gitRoot: string,
   baseRef: string,
-  headRef: string
-): Promise<string> {
+  headRef: string,
+): Promise<string> => {
   let stdout = "";
 
   try {
@@ -387,26 +458,26 @@ async function resolveMergeBase(
       silent: true,
       stdout: (data) => {
         stdout += data.toString();
-      }
+      },
     });
   } catch (error: unknown) {
     const message = formatError(error);
     throw new Error(
       `Unable to resolve a merge-base for pull request change detection between ${baseRef} and ${headRef}. ` +
         `Ensure both refs are present in the local checkout. Use fetch-depth: 0, and if running under pull_request_target ` +
-        `make sure HEAD is the pull request head commit rather than the base branch. Original error: ${message}`
+        `make sure HEAD is the pull request head commit rather than the base branch. Original error: ${message}`,
     );
   }
 
   return stdout.trim();
-}
+};
 
-function filterProjectsByChanges(
+const filterProjectsByChanges = (
   projects: Project[],
   gitRoot: string,
-  changedFiles: string[]
-): Project[] {
-  return projects.filter((project) => {
+  changedFiles: string[],
+): Project[] =>
+  projects.filter((project) => {
     const relativeToGitRoot = path
       .relative(gitRoot, project.rootPath)
       .split(path.sep)
@@ -419,62 +490,64 @@ function filterProjectsByChanges(
     return changedFiles.some(
       (changedFile) =>
         changedFile === relativeToGitRoot ||
-        changedFile.startsWith(`${relativeToGitRoot}/`)
+        changedFile.startsWith(`${relativeToGitRoot}/`),
     );
   });
-}
 
-function findDefaultBaseRef(): string | undefined {
+const findDefaultBaseRef = (): string | undefined => {
   const githubEventBefore = process.env.GITHUB_EVENT_BEFORE;
   if (githubEventBefore && !/^0+$/.test(githubEventBefore)) {
     return githubEventBefore;
   }
 
   return undefined;
-}
+};
 
-function isPullRequestEvent(): boolean {
+const isPullRequestEvent = (): boolean => {
   const eventName = process.env.GITHUB_EVENT_NAME;
   return eventName === "pull_request" || eventName === "pull_request_target";
-}
+};
 
 interface ExecOptions {
   silent?: boolean;
   stdout?: (data: Buffer) => void;
 }
 
-async function execCommand(
+const execCommand = async (
   commandLine: string,
   args: string[],
   cwd: string,
-  options?: ExecOptions
-): Promise<void> {
+  options?: ExecOptions,
+): Promise<void> => {
   const result = await exec.exec(commandLine, args, {
     cwd,
     ignoreReturnCode: true,
     silent: options?.silent,
     listeners: options?.stdout
       ? {
-          stdout: options.stdout
+          stdout: options.stdout,
         }
-      : undefined
+      : undefined,
   });
 
   if (result !== 0) {
-    throw new Error(`Command failed with exit code ${result}: ${[commandLine, ...args].join(" ")}`);
+    throw new Error(
+      `Command failed with exit code ${result}: ${[commandLine, ...args].join(" ")}`,
+    );
   }
-}
+};
 
-async function execConfiguredCommand(
+const execConfiguredCommand = async (
   commandLine: string,
   cwd: string,
-  commandExecutor: CommandExecutor
-): Promise<void> {
+  commandExecutor: CommandExecutor,
+): Promise<void> => {
   const [tool, ...args] = splitCommandLine(commandLine);
   await commandExecutor(tool, args, cwd);
-}
+};
 
-function splitCommandLine(commandLine: string): string[] {
+// eslint-disable-next-line complexity
+const splitCommandLine = (commandLine: string): string[] => {
   const tokens: string[] = [];
   let currentToken = "";
   let quote: '"' | "'" | null = null;
@@ -532,49 +605,59 @@ function splitCommandLine(commandLine: string): string[] {
   }
 
   return tokens;
-}
+};
 
-function formatError(error: unknown): string {
+const formatError = (error: unknown): string => {
   if (error instanceof Error) {
     return error.message;
   }
 
   return String(error);
-}
+};
 
-async function shouldUseRootWorkspaceInstall(workingDirectory: string): Promise<boolean> {
+const shouldUseRootWorkspaceInstall = async (
+  workingDirectory: string,
+): Promise<boolean> => {
   const packageJsonPath = path.join(workingDirectory, "package.json");
-  if (!(await pathExists(packageJsonPath)) || !(await hasNodeLockfile(workingDirectory))) {
+  if (
+    !(await pathExists(packageJsonPath)) ||
+    !(await hasNodeLockfile(workingDirectory))
+  ) {
     return false;
   }
 
-  const packageJson = JSON.parse(await fs.readFile(packageJsonPath, "utf8")) as {
+  const packageJson = JSON.parse(
+    await fs.readFile(packageJsonPath, "utf8"),
+  ) as {
     workspaces?: string[] | { packages?: string[] };
   };
 
   return hasWorkspaces(packageJson.workspaces);
-}
+};
 
-function hasWorkspaces(workspaces: string[] | { packages?: string[] } | undefined): boolean {
+const hasWorkspaces = (
+  workspaces: string[] | { packages?: string[] } | undefined,
+): boolean => {
   if (Array.isArray(workspaces)) {
     return workspaces.length > 0;
   }
 
   return Array.isArray(workspaces?.packages) && workspaces.packages.length > 0;
-}
+};
 
-async function hasNodeLockfile(directory: string): Promise<boolean> {
-  return (
-    (await pathExists(path.join(directory, "package-lock.json"))) ||
-    (await pathExists(path.join(directory, "npm-shrinkwrap.json")))
-  );
-}
+const hasNodeLockfile = async (directory: string): Promise<boolean> => {
+  if (await pathExists(path.join(directory, "package-lock.json"))) {
+    return true;
+  }
 
-async function pathExists(filePath: string): Promise<boolean> {
+  return pathExists(path.join(directory, "npm-shrinkwrap.json"));
+};
+
+const pathExists = async (filePath: string): Promise<boolean> => {
   try {
     await fs.access(filePath);
     return true;
   } catch {
     return false;
   }
-}
+};

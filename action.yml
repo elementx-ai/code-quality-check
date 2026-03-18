@@ -162,7 +162,7 @@ runs:
     - name: Run project checks
       id: run
       shell: bash
-      run: node "$GITHUB_ACTION_PATH/dist/index.js"
+      run: node "$GITHUB_ACTION_PATH/dist/index.mjs"
       env:
         PROJECT_CHECKS_WORKING_DIRECTORY: ${{ inputs.working-directory }}
         PROJECT_CHECKS_AUTO_INSTALL: ${{ inputs.auto-install }}
