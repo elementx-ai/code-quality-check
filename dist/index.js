@@ -15,6 +15,7 @@ exports.detectRepoMode = detectRepoMode;
 exports.detectPythonRuff = detectPythonRuff;
 const node_fs_1 = __nccwpck_require__(3024);
 const node_path_1 = __importDefault(__nccwpck_require__(6760));
+const TERRAFORM_DIRECTORIES = new Set(["tf", "module"]);
 const IGNORED_DIRECTORIES = new Set([
     ".git",
     ".hg",
@@ -33,6 +34,7 @@ const IGNORED_DIRECTORIES = new Set([
 ]);
 async function discoverProjects(workingDirectory, options) {
     const discovered = new Map();
+    const misplacedTerraformFiles = [];
     const maxDepth = options.projectDepth === undefined || options.projectDepth < 0
         ? undefined
         : options.projectDepth;
@@ -41,7 +43,8 @@ async function discoverProjects(workingDirectory, options) {
         const entryNames = new Set(entries.map((entry) => entry.name));
         const isRoot = node_path_1.default.resolve(currentDirectory) === node_path_1.default.resolve(workingDirectory);
         const withinDepth = maxDepth === undefined || depth <= maxDepth;
-        if (withinDepth && !(isRoot && !options.includeRoot)) {
+        const shouldDiscover = withinDepth && !(isRoot && !options.includeRoot);
+        if (shouldDiscover) {
             if (entryNames.has("package.json")) {
                 const manifestPath = node_path_1.default.join(currentDirectory, "package.json");
                 const packageJson = JSON.parse(await node_fs_1.promises.readFile(manifestPath, "utf8"));
@@ -64,6 +67,24 @@ async function discoverProjects(workingDirectory, options) {
                     }
                 });
             }
+            if (isRoot && await hasTerraformFiles(currentDirectory, false)) {
+                addProjectTarget(discovered, workingDirectory, currentDirectory, {
+                    ecosystem: "terraform",
+                    manifestPath: currentDirectory,
+                    metadata: {}
+                });
+            }
+        }
+        const relativeToCwd = node_path_1.default.relative(workingDirectory, currentDirectory);
+        const isInsideTerraformDirectory = relativeToCwd
+            .split(node_path_1.default.sep)
+            .some((segment) => TERRAFORM_DIRECTORIES.has(segment));
+        if (!isRoot && !isInsideTerraformDirectory) {
+            for (const entry of entries) {
+                if (!entry.isDirectory() && entry.name.endsWith(".tf")) {
+                    misplacedTerraformFiles.push(normalizeRelativePath(workingDirectory, node_path_1.default.join(currentDirectory, entry.name)));
+                }
+            }
         }
         if (maxDepth !== undefined && depth >= maxDepth) {
             return;
@@ -75,11 +96,27 @@ async function discoverProjects(workingDirectory, options) {
             if (IGNORED_DIRECTORIES.has(entry.name)) {
                 continue;
             }
+            if (TERRAFORM_DIRECTORIES.has(entry.name)) {
+                if (withinDepth) {
+                    const tfDirectory = node_path_1.default.join(currentDirectory, entry.name);
+                    if (await hasTerraformFiles(tfDirectory)) {
+                        addProjectTarget(discovered, workingDirectory, tfDirectory, {
+                            ecosystem: "terraform",
+                            manifestPath: tfDirectory,
+                            metadata: {}
+                        });
+                    }
+                }
+                continue;
+            }
             await walk(node_path_1.default.join(currentDirectory, entry.name), depth + 1);
         }
     }
     await walk(workingDirectory, 0);
-    return Array.from(discovered.values()).sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+    return {
+        misplacedTerraformFiles: misplacedTerraformFiles.sort(),
+        projects: Array.from(discovered.values()).sort((left, right) => left.relativePath.localeCompare(right.relativePath))
+    };
 }
 function detectRepoMode(projects) {
     if (projects.length === 0) {
@@ -107,6 +144,25 @@ function addProjectTarget(discovered, workingDirectory, projectRoot, target) {
         relativePath,
         targets: [target]
     });
+}
+async function hasTerraformFiles(directory, recursive = true) {
+    try {
+        const entries = await node_fs_1.promises.readdir(directory, { withFileTypes: true });
+        for (const entry of entries) {
+            if (!entry.isDirectory() && entry.name.endsWith(".tf")) {
+                return true;
+            }
+            if (recursive && entry.isDirectory() && !IGNORED_DIRECTORIES.has(entry.name)) {
+                if (await hasTerraformFiles(node_path_1.default.join(directory, entry.name))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    catch {
+        return false;
+    }
 }
 function normalizeRelativePath(from, to) {
     const relative = node_path_1.default.relative(from, to);
@@ -176,8 +232,17 @@ async function main() {
     const nodeInstallCommand = readStringInput("node-install-command", "PROJECT_CHECKS_NODE_INSTALL_COMMAND", "npm ci");
     const pythonFormatCommand = readStringInput("python-format-command", "PROJECT_CHECKS_PYTHON_FORMAT_COMMAND", "uv run ruff format --check .");
     const pythonLintCommand = readStringInput("python-lint-command", "PROJECT_CHECKS_PYTHON_LINT_COMMAND", "uv run ruff check .");
+    const terraformFormatCommand = readStringInput("terraform-format-command", "PROJECT_CHECKS_TERRAFORM_FORMAT_COMMAND", "terraform fmt -check -recursive");
+    const terraformLintCommand = readStringInput("terraform-lint-command", "PROJECT_CHECKS_TERRAFORM_LINT_COMMAND", "tflint --recursive");
     core.info(`Scanning ${workingDirectory} for supported projects.`);
-    const projects = await (0, discovery_1.discoverProjects)(workingDirectory, { includeRoot, projectDepth });
+    const { projects, misplacedTerraformFiles } = await (0, discovery_1.discoverProjects)(workingDirectory, {
+        includeRoot,
+        projectDepth
+    });
+    if (misplacedTerraformFiles.length > 0) {
+        throw new Error(`Terraform files must be placed at the repository root or in a directory named "tf" or "module". ` +
+            `Found misplaced .tf file(s): ${misplacedTerraformFiles.join(", ")}`);
+    }
     const repoMode = (0, discovery_1.detectRepoMode)(projects);
     const projectPaths = projects.map((project) => project.relativePath);
     const detectedEcosystems = Array.from(new Set(projects.flatMap((project) => project.targets.map((target) => target.ecosystem)))).sort();
@@ -187,13 +252,13 @@ async function main() {
     core.setOutput("detected_ecosystems", JSON.stringify(detectedEcosystems));
     setExecutionOutputs([], [], []);
     if (projects.length === 0) {
-        core.notice("No supported projects were discovered. Nothing to do.");
+        core.info("No supported projects were discovered. Nothing to do.");
         core.setOutput("selected_project_count", "0");
         core.setOutput("selected_project_paths", "[]");
         return;
     }
     core.info(`Discovered ${projects.length} project root(s): ${projectPaths.join(", ")}`);
-    const { selectedProjects } = await (0, runner_1.selectProjectsForExecution)(projects, {
+    const runnerInputs = {
         autoInstall,
         baseRef,
         changedOnly,
@@ -201,26 +266,20 @@ async function main() {
         nodeInstallCommand,
         pythonFormatCommand,
         pythonLintCommand,
+        terraformFormatCommand,
+        terraformLintCommand,
         workingDirectory
-    });
+    };
+    const { selectedProjects } = await (0, runner_1.selectProjectsForExecution)(projects, runnerInputs);
     const selectedProjectPaths = selectedProjects.map((project) => project.relativePath);
     core.setOutput("selected_project_count", String(selectedProjects.length));
     core.setOutput("selected_project_paths", JSON.stringify(selectedProjectPaths));
     if (selectedProjects.length === 0) {
-        core.notice("No discovered projects matched the current change set.");
+        core.info("No discovered projects matched the current change set.");
         return;
     }
     core.info(`Running checks for ${selectedProjects.length} project root(s).`);
-    const runSummary = await (0, runner_1.runProjects)(selectedProjects, {
-        autoInstall,
-        baseRef,
-        changedOnly,
-        headRef,
-        nodeInstallCommand,
-        pythonFormatCommand,
-        pythonLintCommand,
-        workingDirectory
-    });
+    const runSummary = await (0, runner_1.runProjects)(selectedProjects, runnerInputs);
     setExecutionOutputs(runSummary.passedProjectPaths, runSummary.failedProjectPaths, runSummary.results);
     if (runSummary.failedProjectPaths.length > 0) {
         core.setFailed(`Checks failed for project(s): ${runSummary.failedProjectPaths.join(", ")}`);
@@ -338,6 +397,11 @@ const exec = __importStar(__nccwpck_require__(5236));
 const node_fs_1 = __nccwpck_require__(3024);
 const node_path_1 = __importDefault(__nccwpck_require__(6760));
 const NODE_SCRIPT_ORDER = ["format", "lint", "test", "build"];
+const REQUIRED_NODE_SCRIPTS = new Set(["format", "lint"]);
+const REQUIRED_NODE_TOOLS = {
+    format: "prettier",
+    lint: "eslint"
+};
 async function selectProjectsForExecution(projects, inputs) {
     if (!inputs.changedOnly) {
         return {
@@ -390,11 +454,7 @@ async function runProjects(projects, inputs, commandExecutor = execCommand) {
         core.startGroup(`Running checks for ${project.relativePath} [${ecosystems.join(", ")}]`);
         try {
             for (const target of project.targets) {
-                if (target.ecosystem === "node") {
-                    await runNodeTarget(project.relativePath, project.rootPath, target.metadata, commandExecutor);
-                    continue;
-                }
-                await runPythonTarget(project.relativePath, project.rootPath, target.metadata, inputs, commandExecutor);
+                await runTarget(project.relativePath, project.rootPath, target, inputs, commandExecutor);
             }
             results.push({
                 ecosystems,
@@ -475,24 +535,53 @@ async function resolveNodeInstallSteps(nodeProjects, workingDirectory) {
             });
             continue;
         }
-        core.warning(`${project.relativePath}: skipping automatic npm install because no package-lock.json or npm-shrinkwrap.json was found.`);
+        core.info(`${project.relativePath}: skipping automatic npm install because no package-lock.json or npm-shrinkwrap.json was found.`);
     }
     return steps;
+}
+async function runTarget(relativePath, rootPath, target, inputs, commandExecutor) {
+    switch (target.ecosystem) {
+        case "node":
+            return runNodeTarget(relativePath, rootPath, target.metadata, commandExecutor);
+        case "python":
+            return runPythonTarget(relativePath, rootPath, target.metadata, inputs, commandExecutor);
+        case "terraform":
+            return runTerraformTarget(relativePath, rootPath, inputs, commandExecutor);
+        default: {
+            const _exhaustive = target;
+            throw new Error(`Unknown ecosystem: ${_exhaustive.ecosystem}`);
+        }
+    }
 }
 function projectHasRunnableNodeTarget(project) {
     return project.targets.some((target) => {
         if (target.ecosystem !== "node") {
             return false;
         }
-        const metadata = target.metadata;
-        return NODE_SCRIPT_ORDER.some((scriptName) => scriptName in metadata.scripts);
+        for (const scriptName of REQUIRED_NODE_SCRIPTS) {
+            if (!(scriptName in target.metadata.scripts))
+                return false;
+        }
+        return true;
     });
 }
 async function runNodeTarget(relativePath, rootPath, metadata, commandExecutor) {
     for (const scriptName of NODE_SCRIPT_ORDER) {
         if (!(scriptName in metadata.scripts)) {
-            core.warning(`${relativePath}: skipping npm run ${scriptName} because the script is not defined.`);
+            if (REQUIRED_NODE_SCRIPTS.has(scriptName)) {
+                throw new Error(`${relativePath}: required script "${scriptName}" is not defined in package.json. ` +
+                    `All Node projects must define format and lint scripts.`);
+            }
+            core.info(`${relativePath}: skipping npm run ${scriptName} because the script is not defined.`);
             continue;
+        }
+        const requiredTool = REQUIRED_NODE_TOOLS[scriptName];
+        if (requiredTool) {
+            const scriptValue = metadata.scripts[scriptName];
+            if (!new RegExp(`\\b${requiredTool}\\b`).test(scriptValue)) {
+                throw new Error(`${relativePath}: the "${scriptName}" script must use ${requiredTool}, ` +
+                    `but found: "${scriptValue}"`);
+            }
         }
         core.info(`${relativePath}: npm run ${scriptName}`);
         await commandExecutor("npm", ["run", scriptName], rootPath);
@@ -500,13 +589,19 @@ async function runNodeTarget(relativePath, rootPath, metadata, commandExecutor) 
 }
 async function runPythonTarget(relativePath, rootPath, metadata, inputs, commandExecutor) {
     if (!metadata.hasRuff) {
-        core.warning(`${relativePath}: skipping Python checks because pyproject.toml does not appear to configure or depend on Ruff.`);
+        core.info(`${relativePath}: skipping Python checks because pyproject.toml does not appear to configure or depend on Ruff.`);
         return;
     }
     core.info(`${relativePath}: ${inputs.pythonFormatCommand}`);
     await execConfiguredCommand(inputs.pythonFormatCommand, rootPath, commandExecutor);
     core.info(`${relativePath}: ${inputs.pythonLintCommand}`);
     await execConfiguredCommand(inputs.pythonLintCommand, rootPath, commandExecutor);
+}
+async function runTerraformTarget(relativePath, rootPath, inputs, commandExecutor) {
+    core.info(`${relativePath}: ${inputs.terraformFormatCommand}`);
+    await execConfiguredCommand(inputs.terraformFormatCommand, rootPath, commandExecutor);
+    core.info(`${relativePath}: ${inputs.terraformLintCommand}`);
+    await execConfiguredCommand(inputs.terraformLintCommand, rootPath, commandExecutor);
 }
 async function resolveGitRoot(workingDirectory) {
     let stdout = "";

@@ -27,10 +27,31 @@ async function main(): Promise<void> {
     "PROJECT_CHECKS_PYTHON_LINT_COMMAND",
     "uv run ruff check ."
   );
+  const terraformFormatCommand = readStringInput(
+    "terraform-format-command",
+    "PROJECT_CHECKS_TERRAFORM_FORMAT_COMMAND",
+    "terraform fmt -check -recursive"
+  );
+  const terraformLintCommand = readStringInput(
+    "terraform-lint-command",
+    "PROJECT_CHECKS_TERRAFORM_LINT_COMMAND",
+    "tflint --recursive"
+  );
 
   core.info(`Scanning ${workingDirectory} for supported projects.`);
 
-  const projects = await discoverProjects(workingDirectory, { includeRoot, projectDepth });
+  const { projects, misplacedTerraformFiles } = await discoverProjects(workingDirectory, {
+    includeRoot,
+    projectDepth
+  });
+
+  if (misplacedTerraformFiles.length > 0) {
+    throw new Error(
+      `Terraform files must be placed at the repository root or in a directory named "tf" or "module". ` +
+        `Found misplaced .tf file(s): ${misplacedTerraformFiles.join(", ")}`
+    );
+  }
+
   const repoMode = detectRepoMode(projects);
   const projectPaths = projects.map((project) => project.relativePath);
   const detectedEcosystems = Array.from(
@@ -44,7 +65,7 @@ async function main(): Promise<void> {
   setExecutionOutputs([], [], []);
 
   if (projects.length === 0) {
-    core.notice("No supported projects were discovered. Nothing to do.");
+    core.info("No supported projects were discovered. Nothing to do.");
     core.setOutput("selected_project_count", "0");
     core.setOutput("selected_project_paths", "[]");
     return;
@@ -52,7 +73,7 @@ async function main(): Promise<void> {
 
   core.info(`Discovered ${projects.length} project root(s): ${projectPaths.join(", ")}`);
 
-  const { selectedProjects } = await selectProjectsForExecution(projects, {
+  const runnerInputs = {
     autoInstall,
     baseRef,
     changedOnly,
@@ -60,29 +81,24 @@ async function main(): Promise<void> {
     nodeInstallCommand,
     pythonFormatCommand,
     pythonLintCommand,
+    terraformFormatCommand,
+    terraformLintCommand,
     workingDirectory
-  });
+  };
+
+  const { selectedProjects } = await selectProjectsForExecution(projects, runnerInputs);
   const selectedProjectPaths = selectedProjects.map((project) => project.relativePath);
 
   core.setOutput("selected_project_count", String(selectedProjects.length));
   core.setOutput("selected_project_paths", JSON.stringify(selectedProjectPaths));
 
   if (selectedProjects.length === 0) {
-    core.notice("No discovered projects matched the current change set.");
+    core.info("No discovered projects matched the current change set.");
     return;
   }
 
   core.info(`Running checks for ${selectedProjects.length} project root(s).`);
-  const runSummary = await runProjects(selectedProjects, {
-    autoInstall,
-    baseRef,
-    changedOnly,
-    headRef,
-    nodeInstallCommand,
-    pythonFormatCommand,
-    pythonLintCommand,
-    workingDirectory
-  });
+  const runSummary = await runProjects(selectedProjects, runnerInputs);
   setExecutionOutputs(
     runSummary.passedProjectPaths,
     runSummary.failedProjectPaths,

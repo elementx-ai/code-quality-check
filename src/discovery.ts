@@ -1,7 +1,9 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { Project, ProjectTarget, PythonTargetMetadata, RepoMode } from "./types";
+import { Project, ProjectTarget, RepoMode } from "./types";
+
+const TERRAFORM_DIRECTORIES = new Set(["tf", "module"]);
 
 const IGNORED_DIRECTORIES = new Set([
   ".git",
@@ -25,11 +27,17 @@ interface DiscoverOptions {
   projectDepth?: number;
 }
 
+export interface DiscoveryResult {
+  misplacedTerraformFiles: string[];
+  projects: Project[];
+}
+
 export async function discoverProjects(
   workingDirectory: string,
   options: DiscoverOptions
-): Promise<Project[]> {
+): Promise<DiscoveryResult> {
   const discovered = new Map<string, Project>();
+  const misplacedTerraformFiles: string[] = [];
   const maxDepth =
     options.projectDepth === undefined || options.projectDepth < 0
       ? undefined
@@ -40,8 +48,9 @@ export async function discoverProjects(
     const entryNames = new Set(entries.map((entry) => entry.name));
     const isRoot = path.resolve(currentDirectory) === path.resolve(workingDirectory);
     const withinDepth = maxDepth === undefined || depth <= maxDepth;
+    const shouldDiscover = withinDepth && !(isRoot && !options.includeRoot);
 
-    if (withinDepth && !(isRoot && !options.includeRoot)) {
+    if (shouldDiscover) {
       if (entryNames.has("package.json")) {
         const manifestPath = path.join(currentDirectory, "package.json");
         const packageJson = JSON.parse(await fs.readFile(manifestPath, "utf8")) as {
@@ -69,6 +78,29 @@ export async function discoverProjects(
           }
         });
       }
+
+      if (isRoot && await hasTerraformFiles(currentDirectory, false)) {
+        addProjectTarget(discovered, workingDirectory, currentDirectory, {
+          ecosystem: "terraform",
+          manifestPath: currentDirectory,
+          metadata: {}
+        });
+      }
+    }
+
+    const relativeToCwd = path.relative(workingDirectory, currentDirectory);
+    const isInsideTerraformDirectory = relativeToCwd
+      .split(path.sep)
+      .some((segment) => TERRAFORM_DIRECTORIES.has(segment));
+
+    if (!isRoot && !isInsideTerraformDirectory) {
+      for (const entry of entries) {
+        if (!entry.isDirectory() && entry.name.endsWith(".tf")) {
+          misplacedTerraformFiles.push(
+            normalizeRelativePath(workingDirectory, path.join(currentDirectory, entry.name))
+          );
+        }
+      }
     }
 
     if (maxDepth !== undefined && depth >= maxDepth) {
@@ -84,15 +116,32 @@ export async function discoverProjects(
         continue;
       }
 
+      if (TERRAFORM_DIRECTORIES.has(entry.name)) {
+        if (withinDepth) {
+          const tfDirectory = path.join(currentDirectory, entry.name);
+          if (await hasTerraformFiles(tfDirectory)) {
+            addProjectTarget(discovered, workingDirectory, tfDirectory, {
+              ecosystem: "terraform",
+              manifestPath: tfDirectory,
+              metadata: {}
+            });
+          }
+        }
+        continue;
+      }
+
       await walk(path.join(currentDirectory, entry.name), depth + 1);
     }
   }
 
   await walk(workingDirectory, 0);
 
-  return Array.from(discovered.values()).sort((left, right) =>
-    left.relativePath.localeCompare(right.relativePath)
-  );
+  return {
+    misplacedTerraformFiles: misplacedTerraformFiles.sort(),
+    projects: Array.from(discovered.values()).sort((left, right) =>
+      left.relativePath.localeCompare(right.relativePath)
+    )
+  };
 }
 
 export function detectRepoMode(projects: Project[]): RepoMode {
@@ -134,6 +183,25 @@ function addProjectTarget(
     relativePath,
     targets: [target]
   });
+}
+
+async function hasTerraformFiles(directory: string, recursive = true): Promise<boolean> {
+  try {
+    const entries = await fs.readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() && entry.name.endsWith(".tf")) {
+        return true;
+      }
+      if (recursive && entry.isDirectory() && !IGNORED_DIRECTORIES.has(entry.name)) {
+        if (await hasTerraformFiles(path.join(directory, entry.name))) {
+          return true;
+        }
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 function normalizeRelativePath(from: string, to: string): string {

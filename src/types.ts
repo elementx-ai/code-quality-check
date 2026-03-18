@@ -1,4 +1,4 @@
-export type Ecosystem = "node" | "python";
+export type Ecosystem = "node" | "python" | "terraform";
 
 export type RepoMode = "empty" | "single-project" | "monorepo";
 
@@ -10,11 +10,27 @@ export interface PythonTargetMetadata {
   hasRuff: boolean;
 }
 
-export interface ProjectTarget {
-  ecosystem: Ecosystem;
+export type TerraformTargetMetadata = Record<string, never>;
+
+export type NodeProjectTarget = {
+  ecosystem: "node";
   manifestPath: string;
-  metadata: NodeTargetMetadata | PythonTargetMetadata;
-}
+  metadata: NodeTargetMetadata;
+};
+
+export type PythonProjectTarget = {
+  ecosystem: "python";
+  manifestPath: string;
+  metadata: PythonTargetMetadata;
+};
+
+export type TerraformProjectTarget = {
+  ecosystem: "terraform";
+  manifestPath: string;
+  metadata: TerraformTargetMetadata;
+};
+
+export type ProjectTarget = NodeProjectTarget | PythonProjectTarget | TerraformProjectTarget;
 
 export interface Project {
   rootPath: string;
