@@ -79,7 +79,7 @@ export async function discoverProjects(
         });
       }
 
-      if (isRoot && await hasTerraformFiles(currentDirectory)) {
+      if (isRoot && await hasTerraformFiles(currentDirectory, false)) {
         addProjectTarget(discovered, workingDirectory, currentDirectory, {
           ecosystem: "terraform",
           manifestPath: currentDirectory,
@@ -185,10 +185,20 @@ function addProjectTarget(
   });
 }
 
-async function hasTerraformFiles(directory: string): Promise<boolean> {
+async function hasTerraformFiles(directory: string, recursive = true): Promise<boolean> {
   try {
-    const entries = await fs.readdir(directory);
-    return entries.some((entry) => entry.endsWith(".tf"));
+    const entries = await fs.readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() && entry.name.endsWith(".tf")) {
+        return true;
+      }
+      if (recursive && entry.isDirectory() && !IGNORED_DIRECTORIES.has(entry.name)) {
+        if (await hasTerraformFiles(path.join(directory, entry.name))) {
+          return true;
+        }
+      }
+    }
+    return false;
   } catch {
     return false;
   }
