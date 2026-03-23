@@ -381,8 +381,13 @@ const runNodeTarget = async (
           `(enforced prettier --check arguments)`,
       );
       await commandExecutor(
-        rewrittenFormatCommand.commandLine,
-        rewrittenFormatCommand.args,
+        "npm",
+        [
+          "exec",
+          "--",
+          rewrittenFormatCommand.commandLine,
+          ...rewrittenFormatCommand.args,
+        ],
         rootPath,
       );
     } else {
