@@ -2,11 +2,10 @@
 
 ## [0.4.1](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.4.0...code-quality-check-v0.4.1) (2026-03-18)
 
-
 ### Bug Fixes
 
-* Add tf-global as valid tf directory, move to rollup for module creation ([#14](https://github.com/elementx-ai/code-quality-check/issues/14)) ([276fa26](https://github.com/elementx-ai/code-quality-check/commit/276fa263bda9cb0dac4c138d2dea1b4035f8f53f))
-* Move main to bottom of index ([#16](https://github.com/elementx-ai/code-quality-check/issues/16)) ([8e27321](https://github.com/elementx-ai/code-quality-check/commit/8e27321520f0f1abb486e58d307f768f14888d2a))
+- Add tf-global as valid tf directory, move to rollup for module creation ([#14](https://github.com/elementx-ai/code-quality-check/issues/14)) ([276fa26](https://github.com/elementx-ai/code-quality-check/commit/276fa263bda9cb0dac4c138d2dea1b4035f8f53f))
+- Move main to bottom of index ([#16](https://github.com/elementx-ai/code-quality-check/issues/16)) ([8e27321](https://github.com/elementx-ai/code-quality-check/commit/8e27321520f0f1abb486e58d307f768f14888d2a))
 
 ## [0.4.0](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.3.1...code-quality-check-v0.4.0) (2026-03-18)
 

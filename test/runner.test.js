@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import assert from "node:assert/strict";
 import { execFile as execFileCb } from "node:child_process";
 import fs from "node:fs/promises";
@@ -723,7 +724,7 @@ test("runProjects fails when format script chains commands with shell operators"
   assert.deepEqual(summary.failedProjectPaths, ["app"]);
   assert.ok(
     summary.results[0].error.includes(
-      'must be a standalone prettier command without shell operators',
+      "must be a standalone prettier command without shell operators",
     ),
   );
   assert.deepEqual(calls, []);

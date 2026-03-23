@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import * as core from "@actions/core";
 import * as exec from "@actions/exec";
 
@@ -415,7 +416,9 @@ const rewritePrettierWriteToCheck = (
     return undefined;
   }
 
-  const withoutWriteFlags = tokens.filter((token) => !isPrettierWriteFlag(token));
+  const withoutWriteFlags = tokens.filter(
+    (token) => !isPrettierWriteFlag(token),
+  );
   const hasCheckEnabled = withoutWriteFlags.some(
     (token) => token === "--check" || token === "--check=true",
   );
