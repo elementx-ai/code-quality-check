@@ -85,8 +85,8 @@ test("runProjects returns passed and failed project paths", async () => {
   ]);
   assert.deepEqual(calls, [
     {
-      args: ["run", "format"],
-      commandLine: "npm",
+      args: [".", "--check"],
+      commandLine: "prettier",
       cwd: "/tmp/evaluator",
     },
     {
@@ -182,8 +182,8 @@ test("runProjects installs workspace dependencies once from the root", async () 
         cwd: tempDirectory,
       },
       {
-        args: ["run", "format"],
-        commandLine: "npm",
+        args: [".", "--check"],
+        commandLine: "prettier",
         cwd: path.join(tempDirectory, "packages", "evaluator"),
       },
       {
@@ -396,6 +396,337 @@ test("runProjects rewrites prettier --write to --check for format script", async
       cwd: "/tmp/app",
     },
   ]);
+});
+
+test("runProjects rewrites prettier -w to --check for format script", async () => {
+  const calls = [];
+  const projects = [
+    {
+      rootPath: "/tmp/app",
+      relativePath: "app",
+      targets: [
+        {
+          ecosystem: "node",
+          manifestPath: "/tmp/app/package.json",
+          metadata: {
+            scripts: {
+              format: "prettier -w .",
+              lint: "eslint .",
+            },
+          },
+        },
+      ],
+    },
+  ];
+
+  const commandExecutor = async (commandLine, args, cwd) => {
+    calls.push({ args, commandLine, cwd });
+  };
+
+  const summary = await runProjects(
+    projects,
+    {
+      autoInstall: false,
+      changedOnly: false,
+      headRef: "HEAD",
+      nodeInstallCommand: "npm ci",
+      pythonFormatCommand: "uv run ruff format --check .",
+      pythonLintCommand: "uv run ruff check .",
+      terraformFormatCommand: "terraform fmt -check -recursive",
+      terraformLintCommand: "tflint --recursive",
+      workingDirectory: "/tmp",
+    },
+    commandExecutor,
+  );
+
+  assert.deepEqual(summary.passedProjectPaths, ["app"]);
+  assert.deepEqual(calls, [
+    {
+      args: ["--check", "."],
+      commandLine: "prettier",
+      cwd: "/tmp/app",
+    },
+    {
+      args: ["run", "lint"],
+      commandLine: "npm",
+      cwd: "/tmp/app",
+    },
+  ]);
+});
+
+test("runProjects removes --write=false and enforces --check", async () => {
+  const calls = [];
+  const projects = [
+    {
+      rootPath: "/tmp/app",
+      relativePath: "app",
+      targets: [
+        {
+          ecosystem: "node",
+          manifestPath: "/tmp/app/package.json",
+          metadata: {
+            scripts: {
+              format: "prettier --write=false .",
+              lint: "eslint .",
+            },
+          },
+        },
+      ],
+    },
+  ];
+
+  const commandExecutor = async (commandLine, args, cwd) => {
+    calls.push({ args, commandLine, cwd });
+  };
+
+  const summary = await runProjects(
+    projects,
+    {
+      autoInstall: false,
+      changedOnly: false,
+      headRef: "HEAD",
+      nodeInstallCommand: "npm ci",
+      pythonFormatCommand: "uv run ruff format --check .",
+      pythonLintCommand: "uv run ruff check .",
+      terraformFormatCommand: "terraform fmt -check -recursive",
+      terraformLintCommand: "tflint --recursive",
+      workingDirectory: "/tmp",
+    },
+    commandExecutor,
+  );
+
+  assert.deepEqual(summary.passedProjectPaths, ["app"]);
+  assert.deepEqual(calls, [
+    {
+      args: [".", "--check"],
+      commandLine: "prettier",
+      cwd: "/tmp/app",
+    },
+    {
+      args: ["run", "lint"],
+      commandLine: "npm",
+      cwd: "/tmp/app",
+    },
+  ]);
+});
+
+test("runProjects keeps format script as-is when --check=true already exists", async () => {
+  const calls = [];
+  const projects = [
+    {
+      rootPath: "/tmp/app",
+      relativePath: "app",
+      targets: [
+        {
+          ecosystem: "node",
+          manifestPath: "/tmp/app/package.json",
+          metadata: {
+            scripts: {
+              format: "prettier --check=true .",
+              lint: "eslint .",
+            },
+          },
+        },
+      ],
+    },
+  ];
+
+  const commandExecutor = async (commandLine, args, cwd) => {
+    calls.push({ args, commandLine, cwd });
+  };
+
+  const summary = await runProjects(
+    projects,
+    {
+      autoInstall: false,
+      changedOnly: false,
+      headRef: "HEAD",
+      nodeInstallCommand: "npm ci",
+      pythonFormatCommand: "uv run ruff format --check .",
+      pythonLintCommand: "uv run ruff check .",
+      terraformFormatCommand: "terraform fmt -check -recursive",
+      terraformLintCommand: "tflint --recursive",
+      workingDirectory: "/tmp",
+    },
+    commandExecutor,
+  );
+
+  assert.deepEqual(summary.passedProjectPaths, ["app"]);
+  assert.deepEqual(calls, [
+    {
+      args: ["run", "format"],
+      commandLine: "npm",
+      cwd: "/tmp/app",
+    },
+    {
+      args: ["run", "lint"],
+      commandLine: "npm",
+      cwd: "/tmp/app",
+    },
+  ]);
+});
+
+test("runProjects removes --write when --check already exists", async () => {
+  const calls = [];
+  const projects = [
+    {
+      rootPath: "/tmp/app",
+      relativePath: "app",
+      targets: [
+        {
+          ecosystem: "node",
+          manifestPath: "/tmp/app/package.json",
+          metadata: {
+            scripts: {
+              format: "prettier --check --write .",
+              lint: "eslint .",
+            },
+          },
+        },
+      ],
+    },
+  ];
+
+  const commandExecutor = async (commandLine, args, cwd) => {
+    calls.push({ args, commandLine, cwd });
+  };
+
+  const summary = await runProjects(
+    projects,
+    {
+      autoInstall: false,
+      changedOnly: false,
+      headRef: "HEAD",
+      nodeInstallCommand: "npm ci",
+      pythonFormatCommand: "uv run ruff format --check .",
+      pythonLintCommand: "uv run ruff check .",
+      terraformFormatCommand: "terraform fmt -check -recursive",
+      terraformLintCommand: "tflint --recursive",
+      workingDirectory: "/tmp",
+    },
+    commandExecutor,
+  );
+
+  assert.deepEqual(summary.passedProjectPaths, ["app"]);
+  assert.deepEqual(calls, [
+    {
+      args: ["--check", "."],
+      commandLine: "prettier",
+      cwd: "/tmp/app",
+    },
+    {
+      args: ["run", "lint"],
+      commandLine: "npm",
+      cwd: "/tmp/app",
+    },
+  ]);
+});
+
+test("runProjects rewrites --check=false to --check and removes --write flags", async () => {
+  const calls = [];
+  const projects = [
+    {
+      rootPath: "/tmp/app",
+      relativePath: "app",
+      targets: [
+        {
+          ecosystem: "node",
+          manifestPath: "/tmp/app/package.json",
+          metadata: {
+            scripts: {
+              format: "prettier --check=false --write .",
+              lint: "eslint .",
+            },
+          },
+        },
+      ],
+    },
+  ];
+
+  const commandExecutor = async (commandLine, args, cwd) => {
+    calls.push({ args, commandLine, cwd });
+  };
+
+  const summary = await runProjects(
+    projects,
+    {
+      autoInstall: false,
+      changedOnly: false,
+      headRef: "HEAD",
+      nodeInstallCommand: "npm ci",
+      pythonFormatCommand: "uv run ruff format --check .",
+      pythonLintCommand: "uv run ruff check .",
+      terraformFormatCommand: "terraform fmt -check -recursive",
+      terraformLintCommand: "tflint --recursive",
+      workingDirectory: "/tmp",
+    },
+    commandExecutor,
+  );
+
+  assert.deepEqual(summary.passedProjectPaths, ["app"]);
+  assert.deepEqual(calls, [
+    {
+      args: [".", "--check"],
+      commandLine: "prettier",
+      cwd: "/tmp/app",
+    },
+    {
+      args: ["run", "lint"],
+      commandLine: "npm",
+      cwd: "/tmp/app",
+    },
+  ]);
+});
+
+test("runProjects fails when format script chains commands with shell operators", async () => {
+  const calls = [];
+  const projects = [
+    {
+      rootPath: "/tmp/app",
+      relativePath: "app",
+      targets: [
+        {
+          ecosystem: "node",
+          manifestPath: "/tmp/app/package.json",
+          metadata: {
+            scripts: {
+              format: "prettier --write . && eslint --fix .",
+              lint: "eslint .",
+            },
+          },
+        },
+      ],
+    },
+  ];
+
+  const commandExecutor = async (commandLine, args, cwd) => {
+    calls.push({ args, commandLine, cwd });
+  };
+
+  const summary = await runProjects(
+    projects,
+    {
+      autoInstall: false,
+      changedOnly: false,
+      headRef: "HEAD",
+      nodeInstallCommand: "npm ci",
+      pythonFormatCommand: "uv run ruff format --check .",
+      pythonLintCommand: "uv run ruff check .",
+      terraformFormatCommand: "terraform fmt -check -recursive",
+      terraformLintCommand: "tflint --recursive",
+      workingDirectory: "/tmp",
+    },
+    commandExecutor,
+  );
+
+  assert.deepEqual(summary.passedProjectPaths, []);
+  assert.deepEqual(summary.failedProjectPaths, ["app"]);
+  assert.ok(
+    summary.results[0].error.includes(
+      'must be a standalone prettier command without shell operators',
+    ),
+  );
+  assert.deepEqual(calls, []);
 });
 
 test("runProjects fails when lint script does not use eslint", async () => {

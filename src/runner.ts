@@ -18,6 +18,7 @@ const requiredNodeTools: Record<string, string> = {
   format: "prettier",
   lint: "eslint",
 };
+const unsupportedShellOperatorPattern = /&&|\|\||[;|]/;
 
 export interface RunnerInputs {
   autoInstall: boolean;
@@ -357,16 +358,84 @@ const runNodeTarget = async (
       }
     }
 
-    if (scriptName === "format" && /\bprettier\b/.test(scriptValue) && scriptValue.includes("--write")) {
-      const checkCommand = scriptValue.replace("--write", "--check");
-      core.info(`${relativePath}: ${checkCommand} (rewritten from --write to --check)`);
-      await execConfiguredCommand(checkCommand, rootPath, commandExecutor);
+    if (
+      scriptName === "format" &&
+      unsupportedShellOperatorPattern.test(scriptValue)
+    ) {
+      core.warning(
+        `${relativePath}: only a single prettier command is allowed in the "format" script. Found: "${scriptValue}"`,
+      );
+      throw new Error(
+        `${relativePath}: the "format" script must be a standalone prettier command without shell operators ` +
+          `(&&, ||, ;, |). Use a separate script for additional commands and keep CI formatting as prettier --check.`,
+      );
+    }
+
+    const rewrittenFormatCommand =
+      scriptName === "format"
+        ? rewritePrettierWriteToCheck(scriptValue, relativePath)
+        : undefined;
+    if (rewrittenFormatCommand) {
+      core.info(
+        `${relativePath}: ${rewrittenFormatCommand.commandLine} ${rewrittenFormatCommand.args.join(" ")} ` +
+          `(enforced prettier --check arguments)`,
+      );
+      await commandExecutor(
+        rewrittenFormatCommand.commandLine,
+        rewrittenFormatCommand.args,
+        rootPath,
+      );
     } else {
       core.info(`${relativePath}: npm run ${scriptName}`);
       await commandExecutor("npm", ["run", scriptName], rootPath);
     }
   }
 };
+
+const rewritePrettierWriteToCheck = (
+  commandLine: string,
+  relativePath: string,
+): { args: string[]; commandLine: string } | undefined => {
+  let tokens: string[];
+
+  try {
+    tokens = splitCommandLine(commandLine);
+  } catch (error: unknown) {
+    throw new Error(
+      `${relativePath}: unable to parse the "format" script for safer prettier rewriting: ${formatError(error)}`,
+    );
+  }
+
+  if (!tokens.some((token) => /\bprettier\b/.test(token))) {
+    return undefined;
+  }
+
+  const withoutWriteFlags = tokens.filter((token) => !isPrettierWriteFlag(token));
+  const hasCheckEnabled = withoutWriteFlags.some(
+    (token) => token === "--check" || token === "--check=true",
+  );
+  const withoutDisabledCheckFlags = withoutWriteFlags.filter(
+    (token) => token !== "--check=false",
+  );
+  const rewritten =
+    hasCheckEnabled && withoutDisabledCheckFlags.length > 0
+      ? withoutDisabledCheckFlags
+      : [...withoutDisabledCheckFlags, "--check"];
+  const wasRewritten = rewritten.join("\u0000") !== tokens.join("\u0000");
+
+  if (!wasRewritten) {
+    return undefined;
+  }
+
+  const [tool, ...args] = rewritten;
+  return {
+    args,
+    commandLine: tool,
+  };
+};
+
+const isPrettierWriteFlag = (token: string): boolean =>
+  token === "-w" || token === "--write" || token.startsWith("--write=");
 
 const runPythonTarget = async (
   relativePath: string,
