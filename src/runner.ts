@@ -347,8 +347,8 @@ const runNodeTarget = async (
     }
 
     const requiredTool = requiredNodeTools[scriptName];
+    const scriptValue = metadata.scripts[scriptName];
     if (requiredTool) {
-      const scriptValue = metadata.scripts[scriptName];
       if (!new RegExp(`\\b${requiredTool}\\b`).test(scriptValue)) {
         throw new Error(
           `${relativePath}: the "${scriptName}" script must use ${requiredTool}, ` +
@@ -357,8 +357,14 @@ const runNodeTarget = async (
       }
     }
 
-    core.info(`${relativePath}: npm run ${scriptName}`);
-    await commandExecutor("npm", ["run", scriptName], rootPath);
+    if (scriptName === "format" && /\bprettier\b/.test(scriptValue) && scriptValue.includes("--write")) {
+      const checkCommand = scriptValue.replace("--write", "--check");
+      core.info(`${relativePath}: ${checkCommand} (rewritten from --write to --check)`);
+      await execConfiguredCommand(checkCommand, rootPath, commandExecutor);
+    } else {
+      core.info(`${relativePath}: npm run ${scriptName}`);
+      await commandExecutor("npm", ["run", scriptName], rootPath);
+    }
   }
 };
 

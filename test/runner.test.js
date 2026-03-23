@@ -342,6 +342,62 @@ test("runProjects fails when format script does not use prettier", async () => {
   assert.deepEqual(calls, []);
 });
 
+test("runProjects rewrites prettier --write to --check for format script", async () => {
+  const calls = [];
+  const projects = [
+    {
+      rootPath: "/tmp/app",
+      relativePath: "app",
+      targets: [
+        {
+          ecosystem: "node",
+          manifestPath: "/tmp/app/package.json",
+          metadata: {
+            scripts: {
+              format: "prettier --write . --ignore-unknown",
+              lint: "eslint .",
+            },
+          },
+        },
+      ],
+    },
+  ];
+
+  const commandExecutor = async (commandLine, args, cwd) => {
+    calls.push({ args, commandLine, cwd });
+  };
+
+  const summary = await runProjects(
+    projects,
+    {
+      autoInstall: false,
+      changedOnly: false,
+      headRef: "HEAD",
+      nodeInstallCommand: "npm ci",
+      pythonFormatCommand: "uv run ruff format --check .",
+      pythonLintCommand: "uv run ruff check .",
+      terraformFormatCommand: "terraform fmt -check -recursive",
+      terraformLintCommand: "tflint --recursive",
+      workingDirectory: "/tmp",
+    },
+    commandExecutor,
+  );
+
+  assert.deepEqual(summary.passedProjectPaths, ["app"]);
+  assert.deepEqual(calls, [
+    {
+      args: ["--check", ".", "--ignore-unknown"],
+      commandLine: "prettier",
+      cwd: "/tmp/app",
+    },
+    {
+      args: ["run", "lint"],
+      commandLine: "npm",
+      cwd: "/tmp/app",
+    },
+  ]);
+});
+
 test("runProjects fails when lint script does not use eslint", async () => {
   const calls = [];
   const projects = [
