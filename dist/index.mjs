@@ -27586,15 +27586,22 @@ const runNodeTarget = async (relativePath, rootPath, metadata, commandExecutor) 
             continue;
         }
         const requiredTool = requiredNodeTools[scriptName];
+        const scriptValue = metadata.scripts[scriptName];
         if (requiredTool) {
-            const scriptValue = metadata.scripts[scriptName];
             if (!new RegExp(`\\b${requiredTool}\\b`).test(scriptValue)) {
                 throw new Error(`${relativePath}: the "${scriptName}" script must use ${requiredTool}, ` +
                     `but found: "${scriptValue}"`);
             }
         }
-        coreExports.info(`${relativePath}: npm run ${scriptName}`);
-        await commandExecutor("npm", ["run", scriptName], rootPath);
+        if (scriptName === "format" && /\bprettier\b/.test(scriptValue) && scriptValue.includes("--write")) {
+            const checkCommand = scriptValue.replace("--write", "--check");
+            coreExports.info(`${relativePath}: ${checkCommand} (rewritten from --write to --check)`);
+            await execConfiguredCommand(checkCommand, rootPath, commandExecutor);
+        }
+        else {
+            coreExports.info(`${relativePath}: npm run ${scriptName}`);
+            await commandExecutor("npm", ["run", scriptName], rootPath);
+        }
     }
 };
 const runPythonTarget = async (relativePath, rootPath, metadata, inputs, commandExecutor) => {
