@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.4.1...code-quality-check-v0.4.2) (2026-03-24)
+
+
+### Bug Fixes
+
+* Enforce prettier to error on formatting errors ([#17](https://github.com/elementx-ai/code-quality-check/issues/17)) ([2ed681d](https://github.com/elementx-ai/code-quality-check/commit/2ed681d8471e1c15c9d38463a1830c79691f7965))
+
 ## [0.4.1](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.4.0...code-quality-check-v0.4.1) (2026-03-18)
 
 ### Bug Fixes
