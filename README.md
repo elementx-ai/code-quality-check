@@ -32,7 +32,7 @@ Format-script enforcement:
 - if `format` is not already in check mode, the action rewrites it to check mode by removing `--write` variants and enforcing `--check`
 - rewritten format commands are executed with `npm exec -- prettier ...` so local tool resolution still happens through npm
 
-`test` and `build` remain optional. Missing optional scripts emit a warning and do not fail the action.
+`test` and `build` remain optional. Missing optional scripts are logged and do not fail the action.
 
 Python checks:
 
