@@ -730,6 +730,164 @@ test("runProjects fails when format script chains commands with shell operators"
   assert.deepEqual(calls, []);
 });
 
+test("runProjects allows pipe character inside quoted format argument", async () => {
+  const calls = [];
+  const projects = [
+    {
+      rootPath: "/tmp/app",
+      relativePath: "app",
+      targets: [
+        {
+          ecosystem: "node",
+          manifestPath: "/tmp/app/package.json",
+          metadata: {
+            scripts: {
+              format: 'prettier --check "." "--config=foo|bar"',
+              lint: "eslint .",
+            },
+          },
+        },
+      ],
+    },
+  ];
+
+  const commandExecutor = async (commandLine, args, cwd) => {
+    calls.push({ args, commandLine, cwd });
+  };
+
+  const summary = await runProjects(
+    projects,
+    {
+      autoInstall: false,
+      changedOnly: false,
+      headRef: "HEAD",
+      nodeInstallCommand: "npm ci",
+      pythonFormatCommand: "uv run ruff format --check .",
+      pythonLintCommand: "uv run ruff check .",
+      terraformFormatCommand: "terraform fmt -check -recursive",
+      terraformLintCommand: "tflint --recursive",
+      workingDirectory: "/tmp",
+    },
+    commandExecutor,
+  );
+
+  assert.deepEqual(summary.passedProjectPaths, ["app"]);
+  assert.deepEqual(calls, [
+    {
+      args: ["run", "format"],
+      commandLine: "npm",
+      cwd: "/tmp/app",
+    },
+    {
+      args: ["run", "lint"],
+      commandLine: "npm",
+      cwd: "/tmp/app",
+    },
+  ]);
+});
+
+test("runProjects fails rewrite when format script wraps prettier with npx", async () => {
+  const calls = [];
+  const projects = [
+    {
+      rootPath: "/tmp/app",
+      relativePath: "app",
+      targets: [
+        {
+          ecosystem: "node",
+          manifestPath: "/tmp/app/package.json",
+          metadata: {
+            scripts: {
+              format: "npx prettier --write .",
+              lint: "eslint .",
+            },
+          },
+        },
+      ],
+    },
+  ];
+
+  const commandExecutor = async (commandLine, args, cwd) => {
+    calls.push({ args, commandLine, cwd });
+  };
+
+  const summary = await runProjects(
+    projects,
+    {
+      autoInstall: false,
+      changedOnly: false,
+      headRef: "HEAD",
+      nodeInstallCommand: "npm ci",
+      pythonFormatCommand: "uv run ruff format --check .",
+      pythonLintCommand: "uv run ruff check .",
+      terraformFormatCommand: "terraform fmt -check -recursive",
+      terraformLintCommand: "tflint --recursive",
+      workingDirectory: "/tmp",
+    },
+    commandExecutor,
+  );
+
+  assert.deepEqual(summary.passedProjectPaths, []);
+  assert.deepEqual(summary.failedProjectPaths, ["app"]);
+  assert.ok(
+    summary.results[0].error.includes(
+      "must invoke prettier directly when check-mode enforcement is needed",
+    ),
+  );
+  assert.deepEqual(calls, []);
+});
+
+test("runProjects fails rewrite when format script uses inline env assignment", async () => {
+  const calls = [];
+  const projects = [
+    {
+      rootPath: "/tmp/app",
+      relativePath: "app",
+      targets: [
+        {
+          ecosystem: "node",
+          manifestPath: "/tmp/app/package.json",
+          metadata: {
+            scripts: {
+              format: "FOO=1 prettier --write .",
+              lint: "eslint .",
+            },
+          },
+        },
+      ],
+    },
+  ];
+
+  const commandExecutor = async (commandLine, args, cwd) => {
+    calls.push({ args, commandLine, cwd });
+  };
+
+  const summary = await runProjects(
+    projects,
+    {
+      autoInstall: false,
+      changedOnly: false,
+      headRef: "HEAD",
+      nodeInstallCommand: "npm ci",
+      pythonFormatCommand: "uv run ruff format --check .",
+      pythonLintCommand: "uv run ruff check .",
+      terraformFormatCommand: "terraform fmt -check -recursive",
+      terraformLintCommand: "tflint --recursive",
+      workingDirectory: "/tmp",
+    },
+    commandExecutor,
+  );
+
+  assert.deepEqual(summary.passedProjectPaths, []);
+  assert.deepEqual(summary.failedProjectPaths, ["app"]);
+  assert.ok(
+    summary.results[0].error.includes(
+      "cannot include inline environment assignments",
+    ),
+  );
+  assert.deepEqual(calls, []);
+});
+
 test("runProjects fails when lint script does not use eslint", async () => {
   const calls = [];
   const projects = [

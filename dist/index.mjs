@@ -29091,14 +29091,241 @@ const normalizeRelativePath = (from, to) => {
     return relative.split(path$1.sep).join(path$1.posix.sep);
 };
 
-/* eslint-disable max-lines */
+const formatError$2 = (error) => error instanceof Error ? error.message : String(error);
+const resolveGitRoot = async (workingDirectory, commandExecutor) => {
+    let stdout = "";
+    await commandExecutor("git", ["rev-parse", "--show-toplevel"], workingDirectory, {
+        silent: true,
+        stdout: (data) => {
+            stdout += data.toString();
+        },
+    });
+    return stdout.trim();
+};
+const resolveChangedFiles = async (gitRoot, baseRef, headRef, commandExecutor) => {
+    let stdout = "";
+    await commandExecutor("git", ["diff", "--name-only", baseRef, headRef], gitRoot, {
+        silent: true,
+        stdout: (data) => {
+            stdout += data.toString();
+        },
+    });
+    return stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => line.split(path$1.sep).join(path$1.posix.sep));
+};
+const resolveMergeBase = async (gitRoot, baseRef, headRef, commandExecutor) => {
+    let stdout = "";
+    try {
+        await commandExecutor("git", ["merge-base", baseRef, headRef], gitRoot, {
+            silent: true,
+            stdout: (data) => {
+                stdout += data.toString();
+            },
+        });
+    }
+    catch (error) {
+        const message = formatError$2(error);
+        throw new Error(`Unable to resolve a merge-base for pull request change detection between ${baseRef} and ${headRef}. ` +
+            `Ensure both refs are present in the local checkout. Use fetch-depth: 0, and if running under pull_request_target ` +
+            `make sure HEAD is the pull request head commit rather than the base branch. Original error: ${message}`);
+    }
+    return stdout.trim();
+};
+const filterProjectsByChanges = (projects, gitRoot, changedFiles) => projects.filter((project) => {
+    const relativeToGitRoot = path$1
+        .relative(gitRoot, project.rootPath)
+        .split(path$1.sep)
+        .join(path$1.posix.sep);
+    if (!relativeToGitRoot) {
+        return changedFiles.length > 0;
+    }
+    return changedFiles.some((changedFile) => changedFile === relativeToGitRoot ||
+        changedFile.startsWith(`${relativeToGitRoot}/`));
+});
+const findDefaultBaseRef = () => {
+    const githubEventBefore = process.env.GITHUB_EVENT_BEFORE;
+    if (githubEventBefore && !/^0+$/.test(githubEventBefore)) {
+        return githubEventBefore;
+    }
+    return undefined;
+};
+const isPullRequestEvent = () => {
+    const eventName = process.env.GITHUB_EVENT_NAME;
+    return eventName === "pull_request" || eventName === "pull_request_target";
+};
+
+const pathExists = async (filePath) => {
+    try {
+        await promises$1.access(filePath);
+        return true;
+    }
+    catch {
+        return false;
+    }
+};
+const hasNodeLockfile = async (directory) => {
+    if (await pathExists(path$1.join(directory, "package-lock.json"))) {
+        return true;
+    }
+    return pathExists(path$1.join(directory, "npm-shrinkwrap.json"));
+};
+const hasWorkspaces = (workspaces) => {
+    if (Array.isArray(workspaces)) {
+        return workspaces.length > 0;
+    }
+    return Array.isArray(workspaces?.packages) && workspaces.packages.length > 0;
+};
+const shouldUseRootWorkspaceInstall = async (workingDirectory) => {
+    const packageJsonPath = path$1.join(workingDirectory, "package.json");
+    if (!(await pathExists(packageJsonPath)) ||
+        !(await hasNodeLockfile(workingDirectory))) {
+        return false;
+    }
+    const packageJson = JSON.parse(await promises$1.readFile(packageJsonPath, "utf8"));
+    return hasWorkspaces(packageJson.workspaces);
+};
+
+// eslint-disable-next-line complexity
+const splitCommandLine = (commandLine) => {
+    const tokens = [];
+    let currentToken = "";
+    let quote = null;
+    let escaping = false;
+    for (const character of commandLine.trim()) {
+        if (escaping) {
+            currentToken += character;
+            escaping = false;
+            continue;
+        }
+        if (character === "\\" && quote !== "'") {
+            escaping = true;
+            continue;
+        }
+        if (quote) {
+            if (character === quote) {
+                quote = null;
+            }
+            else {
+                currentToken += character;
+            }
+            continue;
+        }
+        if (character === "'" || character === '"') {
+            quote = character;
+            continue;
+        }
+        if (/\s/.test(character)) {
+            if (currentToken) {
+                tokens.push(currentToken);
+                currentToken = "";
+            }
+            continue;
+        }
+        currentToken += character;
+    }
+    if (escaping || quote) {
+        throw new Error(`Unable to parse command: ${commandLine}`);
+    }
+    if (currentToken) {
+        tokens.push(currentToken);
+    }
+    if (tokens.length === 0) {
+        throw new Error("Configured command was empty.");
+    }
+    return tokens;
+};
+// eslint-disable-next-line complexity
+const hasUnquotedShellOperatorToken = (commandLine) => {
+    let quote = null;
+    let escaping = false;
+    for (let index = 0; index < commandLine.length; index += 1) {
+        const character = commandLine[index];
+        if (escaping) {
+            escaping = false;
+            continue;
+        }
+        if (character === "\\" && quote !== "'") {
+            escaping = true;
+            continue;
+        }
+        if (quote) {
+            if (character === quote) {
+                quote = null;
+            }
+            continue;
+        }
+        if (character === "'" || character === '"') {
+            quote = character;
+            continue;
+        }
+        if (character === ";" || character === "|") {
+            return true;
+        }
+        if (character === "&" &&
+            index + 1 < commandLine.length &&
+            commandLine[index + 1] === "&") {
+            return true;
+        }
+    }
+    return false;
+};
+
+const isEnvAssignmentToken = (token) => /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token);
+const isPrettierExecutable = (token) => /(^|[\\/])prettier(?:\.(?:cmd|exe|js|cjs|mjs))?$/i.test(token);
+const isPrettierWriteFlag = (token) => token === "-w" || token === "--write" || token.startsWith("--write=");
+const hasCheckEnabled = (token) => token === "--check" || token === "--check=true";
+const formatError$1 = (error) => error instanceof Error ? error.message : String(error);
+const normalizePrettierFormatScript = (script, relativePath) => {
+    let tokens;
+    try {
+        tokens = splitCommandLine(script);
+    }
+    catch (error) {
+        throw new Error(`${relativePath}: unable to parse the "format" script for prettier normalization: ${formatError$1(error)}`);
+    }
+    const firstNonEnvIndex = tokens.findIndex((token) => !isEnvAssignmentToken(token));
+    if (firstNonEnvIndex < 0) {
+        throw new Error(`${relativePath}: invalid "format" script: "${script}". Expected a standalone prettier command.`);
+    }
+    const executable = tokens[firstNonEnvIndex];
+    const hasAnyPrettierToken = tokens.some((token) => token.toLowerCase().includes("prettier"));
+    if (!hasAnyPrettierToken) {
+        return undefined;
+    }
+    const args = tokens.slice(firstNonEnvIndex + 1);
+    const rewriteNeeded = args.some(isPrettierWriteFlag) ||
+        args.includes("--check=false") ||
+        !args.some(hasCheckEnabled);
+    if (!rewriteNeeded) {
+        return undefined;
+    }
+    if (!isPrettierExecutable(executable)) {
+        throw new Error(`${relativePath}: the "format" script must invoke prettier directly when check-mode enforcement is needed. ` +
+            `Found: "${script}". Use a standalone prettier command (for example: "prettier --check .").`);
+    }
+    if (firstNonEnvIndex > 0) {
+        throw new Error(`${relativePath}: the "format" script cannot include inline environment assignments when prettier check-mode enforcement is needed. ` +
+            `Found: "${script}". Move env vars to the workflow/job environment and use a standalone prettier command.`);
+    }
+    const normalizedArgs = args.filter((token) => token !== "--check=false" && !isPrettierWriteFlag(token));
+    if (!normalizedArgs.some(hasCheckEnabled)) {
+        normalizedArgs.push("--check");
+    }
+    return {
+        args: normalizedArgs,
+        commandLine: "prettier",
+    };
+};
+
 const nodeScriptOrder = ["format", "lint", "test", "build"];
 const requiredNodeScripts = new Set(["format", "lint"]);
 const requiredNodeTools = {
     format: "prettier",
     lint: "eslint",
 };
-const unsupportedShellOperatorPattern = /&&|\|\||[;|]/;
 const selectProjectsForExecution = async (projects, inputs) => {
     if (!inputs.changedOnly) {
         return {
@@ -29114,9 +29341,9 @@ const selectProjectsForExecution = async (projects, inputs) => {
             selectedProjects: projects,
         };
     }
-    const gitRoot = await resolveGitRoot(inputs.workingDirectory);
+    const gitRoot = await resolveGitRoot(inputs.workingDirectory, execCommand);
     const diffBase = await resolveDiffBase(gitRoot, baseRef, inputs.headRef);
-    const changedFiles = await resolveChangedFiles(gitRoot, diffBase, inputs.headRef);
+    const changedFiles = await resolveChangedFiles(gitRoot, diffBase, inputs.headRef, execCommand);
     const selectedProjects = filterProjectsByChanges(projects, gitRoot, changedFiles);
     info(`Resolved ${changedFiles.length} changed file(s) between ${diffBase} and ${inputs.headRef}.`);
     return {
@@ -29128,7 +29355,7 @@ const resolveDiffBase = async (gitRoot, baseRef, headRef) => {
     if (!isPullRequestEvent()) {
         return baseRef;
     }
-    const mergeBase = await resolveMergeBase(gitRoot, baseRef, headRef);
+    const mergeBase = await resolveMergeBase(gitRoot, baseRef, headRef, execCommand);
     info(`Using merge-base ${mergeBase} for pull request change detection.`);
     return mergeBase;
 };
@@ -29278,14 +29505,13 @@ const runNodeTarget = async (relativePath, rootPath, metadata, commandExecutor) 
                     `but found: "${scriptValue}"`);
             }
         }
-        if (scriptName === "format" &&
-            unsupportedShellOperatorPattern.test(scriptValue)) {
+        if (scriptName === "format" && hasUnquotedShellOperatorToken(scriptValue)) {
             warning(`${relativePath}: only a single prettier command is allowed in the "format" script. Found: "${scriptValue}"`);
             throw new Error(`${relativePath}: the "format" script must be a standalone prettier command without shell operators ` +
                 `(&&, ||, ;, |). Use a separate script for additional commands and keep CI formatting as prettier --check.`);
         }
         const rewrittenFormatCommand = scriptName === "format"
-            ? rewritePrettierWriteToCheck(scriptValue, relativePath)
+            ? normalizePrettierFormatScript(scriptValue, relativePath)
             : undefined;
         if (rewrittenFormatCommand) {
             info(`${relativePath}: ${rewrittenFormatCommand.commandLine} ${rewrittenFormatCommand.args.join(" ")} ` +
@@ -29303,34 +29529,6 @@ const runNodeTarget = async (relativePath, rootPath, metadata, commandExecutor) 
         }
     }
 };
-const rewritePrettierWriteToCheck = (commandLine, relativePath) => {
-    let tokens;
-    try {
-        tokens = splitCommandLine(commandLine);
-    }
-    catch (error) {
-        throw new Error(`${relativePath}: unable to parse the "format" script for safer prettier rewriting: ${formatError(error)}`);
-    }
-    if (!tokens.some((token) => /\bprettier\b/.test(token))) {
-        return undefined;
-    }
-    const withoutWriteFlags = tokens.filter((token) => !isPrettierWriteFlag(token));
-    const hasCheckEnabled = withoutWriteFlags.some((token) => token === "--check" || token === "--check=true");
-    const withoutDisabledCheckFlags = withoutWriteFlags.filter((token) => token !== "--check=false");
-    const rewritten = hasCheckEnabled && withoutDisabledCheckFlags.length > 0
-        ? withoutDisabledCheckFlags
-        : [...withoutDisabledCheckFlags, "--check"];
-    const wasRewritten = rewritten.join("\u0000") !== tokens.join("\u0000");
-    if (!wasRewritten) {
-        return undefined;
-    }
-    const [tool, ...args] = rewritten;
-    return {
-        args,
-        commandLine: tool,
-    };
-};
-const isPrettierWriteFlag = (token) => token === "-w" || token === "--write" || token.startsWith("--write=");
 const runPythonTarget = async (relativePath, rootPath, metadata, inputs, commandExecutor) => {
     if (!metadata.hasRuff) {
         info(`${relativePath}: skipping Python checks because pyproject.toml does not appear to configure or depend on Ruff.`);
@@ -29346,70 +29544,6 @@ const runTerraformTarget = async (relativePath, rootPath, inputs, commandExecuto
     await execConfiguredCommand(inputs.terraformFormatCommand, rootPath, commandExecutor);
     info(`${relativePath}: ${inputs.terraformLintCommand}`);
     await execConfiguredCommand(inputs.terraformLintCommand, rootPath, commandExecutor);
-};
-const resolveGitRoot = async (workingDirectory) => {
-    let stdout = "";
-    await execCommand("git", ["rev-parse", "--show-toplevel"], workingDirectory, {
-        silent: true,
-        stdout: (data) => {
-            stdout += data.toString();
-        },
-    });
-    return stdout.trim();
-};
-const resolveChangedFiles = async (gitRoot, baseRef, headRef) => {
-    let stdout = "";
-    await execCommand("git", ["diff", "--name-only", baseRef, headRef], gitRoot, {
-        silent: true,
-        stdout: (data) => {
-            stdout += data.toString();
-        },
-    });
-    return stdout
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => line.split(path$1.sep).join(path$1.posix.sep));
-};
-const resolveMergeBase = async (gitRoot, baseRef, headRef) => {
-    let stdout = "";
-    try {
-        await execCommand("git", ["merge-base", baseRef, headRef], gitRoot, {
-            silent: true,
-            stdout: (data) => {
-                stdout += data.toString();
-            },
-        });
-    }
-    catch (error) {
-        const message = formatError(error);
-        throw new Error(`Unable to resolve a merge-base for pull request change detection between ${baseRef} and ${headRef}. ` +
-            `Ensure both refs are present in the local checkout. Use fetch-depth: 0, and if running under pull_request_target ` +
-            `make sure HEAD is the pull request head commit rather than the base branch. Original error: ${message}`);
-    }
-    return stdout.trim();
-};
-const filterProjectsByChanges = (projects, gitRoot, changedFiles) => projects.filter((project) => {
-    const relativeToGitRoot = path$1
-        .relative(gitRoot, project.rootPath)
-        .split(path$1.sep)
-        .join(path$1.posix.sep);
-    if (!relativeToGitRoot) {
-        return changedFiles.length > 0;
-    }
-    return changedFiles.some((changedFile) => changedFile === relativeToGitRoot ||
-        changedFile.startsWith(`${relativeToGitRoot}/`));
-});
-const findDefaultBaseRef = () => {
-    const githubEventBefore = process.env.GITHUB_EVENT_BEFORE;
-    if (githubEventBefore && !/^0+$/.test(githubEventBefore)) {
-        return githubEventBefore;
-    }
-    return undefined;
-};
-const isPullRequestEvent = () => {
-    const eventName = process.env.GITHUB_EVENT_NAME;
-    return eventName === "pull_request" || eventName === "pull_request_target";
 };
 const execCommand = async (commandLine, args, cwd, options) => {
     const result = await exec(commandLine, args, {
@@ -29430,90 +29564,11 @@ const execConfiguredCommand = async (commandLine, cwd, commandExecutor) => {
     const [tool, ...args] = splitCommandLine(commandLine);
     await commandExecutor(tool, args, cwd);
 };
-// eslint-disable-next-line complexity
-const splitCommandLine = (commandLine) => {
-    const tokens = [];
-    let currentToken = "";
-    let quote = null;
-    let escaping = false;
-    for (const character of commandLine.trim()) {
-        if (escaping) {
-            currentToken += character;
-            escaping = false;
-            continue;
-        }
-        if (character === "\\" && quote !== "'") {
-            escaping = true;
-            continue;
-        }
-        if (quote) {
-            if (character === quote) {
-                quote = null;
-            }
-            else {
-                currentToken += character;
-            }
-            continue;
-        }
-        if (character === "'" || character === '"') {
-            quote = character;
-            continue;
-        }
-        if (/\s/.test(character)) {
-            if (currentToken) {
-                tokens.push(currentToken);
-                currentToken = "";
-            }
-            continue;
-        }
-        currentToken += character;
-    }
-    if (escaping || quote) {
-        throw new Error(`Unable to parse command: ${commandLine}`);
-    }
-    if (currentToken) {
-        tokens.push(currentToken);
-    }
-    if (tokens.length === 0) {
-        throw new Error("Configured command was empty.");
-    }
-    return tokens;
-};
 const formatError = (error) => {
     if (error instanceof Error) {
         return error.message;
     }
     return String(error);
-};
-const shouldUseRootWorkspaceInstall = async (workingDirectory) => {
-    const packageJsonPath = path$1.join(workingDirectory, "package.json");
-    if (!(await pathExists(packageJsonPath)) ||
-        !(await hasNodeLockfile(workingDirectory))) {
-        return false;
-    }
-    const packageJson = JSON.parse(await promises$1.readFile(packageJsonPath, "utf8"));
-    return hasWorkspaces(packageJson.workspaces);
-};
-const hasWorkspaces = (workspaces) => {
-    if (Array.isArray(workspaces)) {
-        return workspaces.length > 0;
-    }
-    return Array.isArray(workspaces?.packages) && workspaces.packages.length > 0;
-};
-const hasNodeLockfile = async (directory) => {
-    if (await pathExists(path$1.join(directory, "package-lock.json"))) {
-        return true;
-    }
-    return pathExists(path$1.join(directory, "npm-shrinkwrap.json"));
-};
-const pathExists = async (filePath) => {
-    try {
-        await promises$1.access(filePath);
-        return true;
-    }
-    catch {
-        return false;
-    }
 };
 
 const main = async () => {

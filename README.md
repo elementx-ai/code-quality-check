@@ -29,6 +29,7 @@ Node checks:
 Format-script enforcement:
 
 - `format` must be a standalone Prettier command (no shell operators such as `&&`, `||`, `;`, `|`)
+- when format enforcement is needed, the command must invoke `prettier` directly (wrapper commands like `npx prettier ...` or `cross-env ... prettier ...` are rejected)
 - if `format` is not already in check mode, the action rewrites it to check mode by removing `--write` variants and enforcing `--check`
 - rewritten format commands are executed with `npm exec -- prettier ...` so local tool resolution still happens through npm
 
