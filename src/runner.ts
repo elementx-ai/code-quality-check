@@ -1,9 +1,23 @@
 import * as core from "@actions/core";
 import * as exec from "@actions/exec";
 
-import { promises as fs } from "node:fs";
-import path from "node:path";
-
+import {
+  filterProjectsByChanges,
+  findDefaultBaseRef,
+  isPullRequestEvent,
+  resolveChangedFiles,
+  resolveGitRoot,
+  resolveMergeBase,
+} from "./helpers/git-changes.js";
+import {
+  hasNodeLockfile,
+  shouldUseRootWorkspaceInstall,
+} from "./helpers/node-install.js";
+import { normalizePrettierFormatScript } from "./helpers/node-format.js";
+import {
+  hasUnquotedShellOperatorToken,
+  splitCommandLine,
+} from "./helpers/command-line.js";
 import {
   Ecosystem,
   NodeTargetMetadata,
@@ -11,7 +25,6 @@ import {
   ProjectTarget,
   PythonTargetMetadata,
 } from "./types.js";
-
 const nodeScriptOrder = ["format", "lint", "test", "build"] as const;
 const requiredNodeScripts = new Set<string>(["format", "lint"]);
 const requiredNodeTools: Record<string, string> = {
@@ -79,30 +92,28 @@ export const selectProjectsForExecution = async (
     core.warning(
       "changed-only was enabled but no base-ref could be resolved. Running checks for all discovered projects.",
     );
-
     return {
       changedFiles: [],
       selectedProjects: projects,
     };
   }
 
-  const gitRoot = await resolveGitRoot(inputs.workingDirectory);
+  const gitRoot = await resolveGitRoot(inputs.workingDirectory, execCommand);
   const diffBase = await resolveDiffBase(gitRoot, baseRef, inputs.headRef);
   const changedFiles = await resolveChangedFiles(
     gitRoot,
     diffBase,
     inputs.headRef,
+    execCommand,
   );
   const selectedProjects = filterProjectsByChanges(
     projects,
     gitRoot,
     changedFiles,
   );
-
   core.info(
     `Resolved ${changedFiles.length} changed file(s) between ${diffBase} and ${inputs.headRef}.`,
   );
-
   return {
     changedFiles,
     selectedProjects,
@@ -118,7 +129,12 @@ const resolveDiffBase = async (
     return baseRef;
   }
 
-  const mergeBase = await resolveMergeBase(gitRoot, baseRef, headRef);
+  const mergeBase = await resolveMergeBase(
+    gitRoot,
+    baseRef,
+    headRef,
+    execCommand,
+  );
   core.info(`Using merge-base ${mergeBase} for pull request change detection.`);
   return mergeBase;
 };
@@ -347,8 +363,8 @@ const runNodeTarget = async (
     }
 
     const requiredTool = requiredNodeTools[scriptName];
+    const scriptValue = metadata.scripts[scriptName];
     if (requiredTool) {
-      const scriptValue = metadata.scripts[scriptName];
       if (!new RegExp(`\\b${requiredTool}\\b`).test(scriptValue)) {
         throw new Error(
           `${relativePath}: the "${scriptName}" script must use ${requiredTool}, ` +
@@ -357,8 +373,39 @@ const runNodeTarget = async (
       }
     }
 
-    core.info(`${relativePath}: npm run ${scriptName}`);
-    await commandExecutor("npm", ["run", scriptName], rootPath);
+    if (scriptName === "format" && hasUnquotedShellOperatorToken(scriptValue)) {
+      core.warning(
+        `${relativePath}: only a single prettier command is allowed in the "format" script. Found: "${scriptValue}"`,
+      );
+      throw new Error(
+        `${relativePath}: the "format" script must be a standalone prettier command without shell operators ` +
+          `(&&, ||, ;, |). Use a separate script for additional commands and keep CI formatting as prettier --check.`,
+      );
+    }
+
+    const rewrittenFormatCommand =
+      scriptName === "format"
+        ? normalizePrettierFormatScript(scriptValue, relativePath)
+        : undefined;
+    if (rewrittenFormatCommand) {
+      core.info(
+        `${relativePath}: ${rewrittenFormatCommand.commandLine} ${rewrittenFormatCommand.args.join(" ")} ` +
+          `(enforced prettier --check arguments)`,
+      );
+      await commandExecutor(
+        "npm",
+        [
+          "exec",
+          "--",
+          rewrittenFormatCommand.commandLine,
+          ...rewrittenFormatCommand.args,
+        ],
+        rootPath,
+      );
+    } else {
+      core.info(`${relativePath}: npm run ${scriptName}`);
+      await commandExecutor("npm", ["run", scriptName], rootPath);
+    }
   }
 };
 
@@ -412,102 +459,6 @@ const runTerraformTarget = async (
   );
 };
 
-const resolveGitRoot = async (workingDirectory: string): Promise<string> => {
-  let stdout = "";
-
-  await execCommand("git", ["rev-parse", "--show-toplevel"], workingDirectory, {
-    silent: true,
-    stdout: (data) => {
-      stdout += data.toString();
-    },
-  });
-
-  return stdout.trim();
-};
-
-const resolveChangedFiles = async (
-  gitRoot: string,
-  baseRef: string,
-  headRef: string,
-): Promise<string[]> => {
-  let stdout = "";
-
-  await execCommand("git", ["diff", "--name-only", baseRef, headRef], gitRoot, {
-    silent: true,
-    stdout: (data) => {
-      stdout += data.toString();
-    },
-  });
-
-  return stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => line.split(path.sep).join(path.posix.sep));
-};
-
-const resolveMergeBase = async (
-  gitRoot: string,
-  baseRef: string,
-  headRef: string,
-): Promise<string> => {
-  let stdout = "";
-
-  try {
-    await execCommand("git", ["merge-base", baseRef, headRef], gitRoot, {
-      silent: true,
-      stdout: (data) => {
-        stdout += data.toString();
-      },
-    });
-  } catch (error: unknown) {
-    const message = formatError(error);
-    throw new Error(
-      `Unable to resolve a merge-base for pull request change detection between ${baseRef} and ${headRef}. ` +
-        `Ensure both refs are present in the local checkout. Use fetch-depth: 0, and if running under pull_request_target ` +
-        `make sure HEAD is the pull request head commit rather than the base branch. Original error: ${message}`,
-    );
-  }
-
-  return stdout.trim();
-};
-
-const filterProjectsByChanges = (
-  projects: Project[],
-  gitRoot: string,
-  changedFiles: string[],
-): Project[] =>
-  projects.filter((project) => {
-    const relativeToGitRoot = path
-      .relative(gitRoot, project.rootPath)
-      .split(path.sep)
-      .join(path.posix.sep);
-
-    if (!relativeToGitRoot) {
-      return changedFiles.length > 0;
-    }
-
-    return changedFiles.some(
-      (changedFile) =>
-        changedFile === relativeToGitRoot ||
-        changedFile.startsWith(`${relativeToGitRoot}/`),
-    );
-  });
-
-const findDefaultBaseRef = (): string | undefined => {
-  const githubEventBefore = process.env.GITHUB_EVENT_BEFORE;
-  if (githubEventBefore && !/^0+$/.test(githubEventBefore)) {
-    return githubEventBefore;
-  }
-
-  return undefined;
-};
-
-const isPullRequestEvent = (): boolean => {
-  const eventName = process.env.GITHUB_EVENT_NAME;
-  return eventName === "pull_request" || eventName === "pull_request_target";
-};
-
 interface ExecOptions {
   silent?: boolean;
   stdout?: (data: Buffer) => void;
@@ -546,118 +497,10 @@ const execConfiguredCommand = async (
   await commandExecutor(tool, args, cwd);
 };
 
-// eslint-disable-next-line complexity
-const splitCommandLine = (commandLine: string): string[] => {
-  const tokens: string[] = [];
-  let currentToken = "";
-  let quote: '"' | "'" | null = null;
-  let escaping = false;
-
-  for (const character of commandLine.trim()) {
-    if (escaping) {
-      currentToken += character;
-      escaping = false;
-      continue;
-    }
-
-    if (character === "\\" && quote !== "'") {
-      escaping = true;
-      continue;
-    }
-
-    if (quote) {
-      if (character === quote) {
-        quote = null;
-      } else {
-        currentToken += character;
-      }
-
-      continue;
-    }
-
-    if (character === "'" || character === '"') {
-      quote = character;
-      continue;
-    }
-
-    if (/\s/.test(character)) {
-      if (currentToken) {
-        tokens.push(currentToken);
-        currentToken = "";
-      }
-
-      continue;
-    }
-
-    currentToken += character;
-  }
-
-  if (escaping || quote) {
-    throw new Error(`Unable to parse command: ${commandLine}`);
-  }
-
-  if (currentToken) {
-    tokens.push(currentToken);
-  }
-
-  if (tokens.length === 0) {
-    throw new Error("Configured command was empty.");
-  }
-
-  return tokens;
-};
-
 const formatError = (error: unknown): string => {
   if (error instanceof Error) {
     return error.message;
   }
 
   return String(error);
-};
-
-const shouldUseRootWorkspaceInstall = async (
-  workingDirectory: string,
-): Promise<boolean> => {
-  const packageJsonPath = path.join(workingDirectory, "package.json");
-  if (
-    !(await pathExists(packageJsonPath)) ||
-    !(await hasNodeLockfile(workingDirectory))
-  ) {
-    return false;
-  }
-
-  const packageJson = JSON.parse(
-    await fs.readFile(packageJsonPath, "utf8"),
-  ) as {
-    workspaces?: string[] | { packages?: string[] };
-  };
-
-  return hasWorkspaces(packageJson.workspaces);
-};
-
-const hasWorkspaces = (
-  workspaces: string[] | { packages?: string[] } | undefined,
-): boolean => {
-  if (Array.isArray(workspaces)) {
-    return workspaces.length > 0;
-  }
-
-  return Array.isArray(workspaces?.packages) && workspaces.packages.length > 0;
-};
-
-const hasNodeLockfile = async (directory: string): Promise<boolean> => {
-  if (await pathExists(path.join(directory, "package-lock.json"))) {
-    return true;
-  }
-
-  return pathExists(path.join(directory, "npm-shrinkwrap.json"));
-};
-
-const pathExists = async (filePath: string): Promise<boolean> => {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
 };

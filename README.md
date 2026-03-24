@@ -24,7 +24,16 @@ Node checks:
 - `npm run test`
 - `npm run build`
 
-Each Node script is only run if it exists in `package.json`. Missing scripts emit a warning and do not fail the action.
+`format` and `lint` are required scripts for Node projects.
+
+Format-script enforcement:
+
+- `format` must be a standalone Prettier command (no shell operators such as `&&`, `||`, `;`, `|`)
+- when format enforcement is needed, the command must invoke `prettier` directly (wrapper commands like `npx prettier ...` or `cross-env ... prettier ...` are rejected)
+- if `format` is not already in check mode, the action rewrites it to check mode by removing `--write` variants and enforcing `--check`
+- rewritten format commands are executed with `npm exec -- prettier ...` so local tool resolution still happens through npm
+
+`test` and `build` remain optional. Missing optional scripts are logged and do not fail the action.
 
 Python checks:
 
