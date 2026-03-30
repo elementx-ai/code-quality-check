@@ -29212,7 +29212,8 @@ const resolveReleasePleaseMetadataOnlyPrChangedFiles = async (workingDirectory, 
         return undefined;
     }
     const gitRoot = await resolveGitRoot(workingDirectory, commandExecutor);
-    const changedFiles = await resolveChangedFiles(gitRoot, pullRequestDiff.baseSha, pullRequestDiff.headSha, commandExecutor);
+    const mergeBase = await resolveMergeBase(gitRoot, pullRequestDiff.baseSha, pullRequestDiff.headSha, commandExecutor);
+    const changedFiles = await resolveChangedFiles(gitRoot, mergeBase, pullRequestDiff.headSha, commandExecutor);
     if (!isReleasePleaseMetadataOnlyChangeSet(changedFiles)) {
         return undefined;
     }

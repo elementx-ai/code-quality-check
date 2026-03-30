@@ -4,6 +4,7 @@ import {
   isPullRequestEvent,
   resolveChangedFiles,
   resolveGitRoot,
+  resolveMergeBase,
 } from "./git-changes.js";
 
 interface ExecOptions {
@@ -126,9 +127,15 @@ export const resolveReleasePleaseMetadataOnlyPrChangedFiles = async (
   }
 
   const gitRoot = await resolveGitRoot(workingDirectory, commandExecutor);
-  const changedFiles = await resolveChangedFiles(
+  const mergeBase = await resolveMergeBase(
     gitRoot,
     pullRequestDiff.baseSha,
+    pullRequestDiff.headSha,
+    commandExecutor,
+  );
+  const changedFiles = await resolveChangedFiles(
+    gitRoot,
+    mergeBase,
     pullRequestDiff.headSha,
     commandExecutor,
   );
