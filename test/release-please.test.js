@@ -27,6 +27,22 @@ test("isReleasePleasePullRequest detects Release Please bot PRs", () => {
     }),
     false,
   );
+  assert.equal(
+    isReleasePleasePullRequest({
+      body: "",
+      head: { ref: "feature/my-branch" },
+      user: { login: "app/github-actions", type: "Bot" },
+    }),
+    false,
+  );
+  assert.equal(
+    isReleasePleasePullRequest({
+      body: "This PR was generated with [Release Please]",
+      head: { ref: "feature/my-branch" },
+      user: { login: "octocat", type: "User" },
+    }),
+    false,
+  );
 });
 
 test("isReleasePleaseMetadataOnlyChangeSet requires changelog and manifest", () => {

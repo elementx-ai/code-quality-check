@@ -29092,6 +29092,22 @@ const normalizeRelativePath = (from, to) => {
     return relative.split(path$1.sep).join(path$1.posix.sep);
 };
 
+const execCommand$1 = async (commandLine, args, cwd, options) => {
+    const result = await exec(commandLine, args, {
+        cwd,
+        ignoreReturnCode: options?.rewrapExitCode ?? false,
+        listeners: options?.stdout
+            ? {
+                stdout: options.stdout,
+            }
+            : undefined,
+        silent: options?.silent ?? false,
+    });
+    if (options?.rewrapExitCode && result !== 0) {
+        throw new Error(`Command failed with exit code ${result}: ${[commandLine, ...args].join(" ")}`);
+    }
+};
+
 const formatError$2 = (error) => error instanceof Error ? error.message : String(error);
 const resolveGitRoot = async (workingDirectory, commandExecutor) => {
     let stdout = "";
@@ -29404,9 +29420,9 @@ const selectProjectsForExecution = async (projects, inputs) => {
             selectedProjects: projects,
         };
     }
-    const gitRoot = await resolveGitRoot(inputs.workingDirectory, execCommand$1);
+    const gitRoot = await resolveGitRoot(inputs.workingDirectory, execCommand);
     const diffBase = await resolveDiffBase(gitRoot, baseRef, inputs.headRef);
-    const changedFiles = await resolveChangedFiles(gitRoot, diffBase, inputs.headRef, execCommand$1);
+    const changedFiles = await resolveChangedFiles(gitRoot, diffBase, inputs.headRef, execCommand);
     const selectedProjects = filterProjectsByChanges(projects, gitRoot, changedFiles);
     info(`Resolved ${changedFiles.length} changed file(s) between ${diffBase} and ${inputs.headRef}.`);
     return {
@@ -29418,11 +29434,11 @@ const resolveDiffBase = async (gitRoot, baseRef, headRef) => {
     if (!isPullRequestEvent()) {
         return baseRef;
     }
-    const mergeBase = await resolveMergeBase(gitRoot, baseRef, headRef, execCommand$1);
+    const mergeBase = await resolveMergeBase(gitRoot, baseRef, headRef, execCommand);
     info(`Using merge-base ${mergeBase} for pull request change detection.`);
     return mergeBase;
 };
-const runProjects = async (projects, inputs, commandExecutor = execCommand$1) => {
+const runProjects = async (projects, inputs, commandExecutor = execCommand) => {
     const installFailures = await installNodeDependencies(projects, inputs, commandExecutor);
     const results = [];
     for (const project of projects) {
@@ -29608,20 +29624,12 @@ const runTerraformTarget = async (relativePath, rootPath, inputs, commandExecuto
     info(`${relativePath}: ${inputs.terraformLintCommand}`);
     await execConfiguredCommand(inputs.terraformLintCommand, rootPath, commandExecutor);
 };
-const execCommand$1 = async (commandLine, args, cwd, options) => {
-    const result = await exec(commandLine, args, {
-        cwd,
-        ignoreReturnCode: true,
+const execCommand = async (commandLine, args, cwd, options) => {
+    await execCommand$1(commandLine, args, cwd, {
+        rewrapExitCode: true,
         silent: options?.silent,
-        listeners: options?.stdout
-            ? {
-                stdout: options.stdout,
-            }
-            : undefined,
+        stdout: options?.stdout,
     });
-    if (result !== 0) {
-        throw new Error(`Command failed with exit code ${result}: ${[commandLine, ...args].join(" ")}`);
-    }
 };
 const execConfiguredCommand = async (commandLine, cwd, commandExecutor) => {
     const [tool, ...args] = splitCommandLine(commandLine);
@@ -29683,7 +29691,7 @@ const main = async () => {
         terraformLintCommand,
         workingDirectory,
     };
-    const releasePleaseChangedFiles = await resolveReleasePleaseMetadataOnlyPrChangedFiles(workingDirectory, execCommand).catch((error) => {
+    const releasePleaseChangedFiles = await resolveReleasePleaseMetadataOnlyPrChangedFiles(workingDirectory, execCommand$1).catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
         warning(`Unable to evaluate Release Please metadata-only PR skip logic. Continuing with normal checks. ${message}`);
         return undefined;
@@ -29744,17 +29752,6 @@ const parseBoolean = (value, label) => {
         return false;
     }
     throw new Error(`Expected ${label} to be true or false, received: ${value}`);
-};
-const execCommand = async (commandLine, args, cwd, options) => {
-    await exec(commandLine, args, {
-        cwd,
-        listeners: options?.stdout
-            ? {
-                stdout: options.stdout,
-            }
-            : undefined,
-        silent: options?.silent ?? false,
-    });
 };
 const readDepthInput = (name, envName) => {
     const value = readStringInput(name, envName, "-1").trim();

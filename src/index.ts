@@ -1,9 +1,9 @@
 import * as core from "@actions/core";
-import * as exec from "@actions/exec";
 
 import path from "node:path";
 
 import { detectRepoMode, discoverProjects } from "./discovery.js";
+import { execCommand } from "./helpers/exec.js";
 import { resolveReleasePleaseMetadataOnlyPrChangedFiles } from "./helpers/release-please.js";
 import { runProjects, selectProjectsForExecution } from "./runner.js";
 
@@ -236,26 +236,6 @@ const parseBoolean = (value: string, label: string): boolean => {
   }
 
   throw new Error(`Expected ${label} to be true or false, received: ${value}`);
-};
-
-const execCommand = async (
-  commandLine: string,
-  args: string[],
-  cwd: string,
-  options?: {
-    silent?: boolean;
-    stdout?: (data: Buffer) => void;
-  },
-): Promise<void> => {
-  await exec.exec(commandLine, args, {
-    cwd,
-    listeners: options?.stdout
-      ? {
-          stdout: options.stdout,
-        }
-      : undefined,
-    silent: options?.silent ?? false,
-  });
 };
 
 const readDepthInput = (name: string, envName: string): number | undefined => {
