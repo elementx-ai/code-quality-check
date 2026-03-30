@@ -15,9 +15,10 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
+      - run: npm ci
       - id: release-please-filter
-        run: node ./scripts/release-please-should-run.js
+        run: node --import tsx ./scripts/release-please-should-run.ts
 
   build-and-test:
     needs: should-run
@@ -32,12 +33,10 @@ jobs:
       - uses: actions/setup-node@v4
         if: ${{ needs.should-run.outputs.skip != 'true' }}
         with:
-          node-version: "20"
+          node-version: "24"
       - if: ${{ needs.should-run.outputs.skip != 'true' }}
-        run: npm ci
-      - if: ${{ needs.should-run.outputs.skip != 'true' }}
-        run: npm run build
-      - if: ${{ needs.should-run.outputs.skip != 'true' }}
-        run: git diff --exit-code -- dist/index.mjs
-      - if: ${{ needs.should-run.outputs.skip != 'true' }}
-        run: npm run test
+        run: |
+          npm ci
+          npm run build
+          git diff --exit-code -- dist/index.mjs
+          npm run test
