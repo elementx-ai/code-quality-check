@@ -35,6 +35,7 @@ import * as child from 'child_process';
 import { setTimeout as setTimeout$1 } from 'timers';
 import path$1 from 'node:path';
 import { promises as promises$1 } from 'node:fs';
+import fs$1 from 'node:fs/promises';
 
 // We use any as a valid input type
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -29157,6 +29158,57 @@ const isPullRequestEvent = () => {
     return eventName === "pull_request" || eventName === "pull_request_target";
 };
 
+const isReleasePleaseMetadataFile = (filename) => filename === ".release-please-manifest.json" ||
+    /(?:^|\/)changelog\.md$/i.test(filename) ||
+    /(?:^|\/)package\.json$/i.test(filename) ||
+    /(?:^|\/)package-lock\.json$/i.test(filename);
+const isReleasePleasePullRequest = (pullRequest) => {
+    const author = pullRequest?.user?.login ?? "";
+    const authorType = pullRequest?.user?.type ?? "";
+    const headRef = pullRequest?.head?.ref ?? "";
+    const body = pullRequest?.body ?? "";
+    return ((author === "app/github-actions" || authorType === "Bot") &&
+        (headRef.startsWith("release-please--") ||
+            body.includes("This PR was generated with [Release Please]")));
+};
+const isReleasePleaseMetadataOnlyChangeSet = (changedFiles) => {
+    const hasChangelog = changedFiles.some((filename) => /(?:^|\/)changelog\.md$/i.test(filename));
+    const hasManifest = changedFiles.includes(".release-please-manifest.json");
+    return (hasChangelog &&
+        hasManifest &&
+        changedFiles.length > 0 &&
+        changedFiles.every(isReleasePleaseMetadataFile));
+};
+const readGitHubEventPayload = async () => {
+    if (!isPullRequestEvent()) {
+        return undefined;
+    }
+    const eventPath = process.env.GITHUB_EVENT_PATH;
+    if (!eventPath) {
+        return undefined;
+    }
+    const raw = await fs$1.readFile(eventPath, "utf8");
+    return JSON.parse(raw);
+};
+const resolveReleasePleaseMetadataOnlyPrChangedFiles = async (workingDirectory, commandExecutor) => {
+    const eventPayload = await readGitHubEventPayload();
+    const pullRequest = eventPayload?.pull_request;
+    if (!isReleasePleasePullRequest(pullRequest)) {
+        return undefined;
+    }
+    const baseSha = pullRequest?.base?.sha;
+    const headSha = pullRequest?.head?.sha;
+    if (!baseSha || !headSha) {
+        return undefined;
+    }
+    const gitRoot = await resolveGitRoot(workingDirectory, commandExecutor);
+    const changedFiles = await resolveChangedFiles(gitRoot, baseSha, headSha, commandExecutor);
+    if (!isReleasePleaseMetadataOnlyChangeSet(changedFiles)) {
+        return undefined;
+    }
+    return changedFiles;
+};
+
 const pathExists = async (filePath) => {
     try {
         await promises$1.access(filePath);
@@ -29341,9 +29393,9 @@ const selectProjectsForExecution = async (projects, inputs) => {
             selectedProjects: projects,
         };
     }
-    const gitRoot = await resolveGitRoot(inputs.workingDirectory, execCommand);
+    const gitRoot = await resolveGitRoot(inputs.workingDirectory, execCommand$1);
     const diffBase = await resolveDiffBase(gitRoot, baseRef, inputs.headRef);
-    const changedFiles = await resolveChangedFiles(gitRoot, diffBase, inputs.headRef, execCommand);
+    const changedFiles = await resolveChangedFiles(gitRoot, diffBase, inputs.headRef, execCommand$1);
     const selectedProjects = filterProjectsByChanges(projects, gitRoot, changedFiles);
     info(`Resolved ${changedFiles.length} changed file(s) between ${diffBase} and ${inputs.headRef}.`);
     return {
@@ -29355,11 +29407,11 @@ const resolveDiffBase = async (gitRoot, baseRef, headRef) => {
     if (!isPullRequestEvent()) {
         return baseRef;
     }
-    const mergeBase = await resolveMergeBase(gitRoot, baseRef, headRef, execCommand);
+    const mergeBase = await resolveMergeBase(gitRoot, baseRef, headRef, execCommand$1);
     info(`Using merge-base ${mergeBase} for pull request change detection.`);
     return mergeBase;
 };
-const runProjects = async (projects, inputs, commandExecutor = execCommand) => {
+const runProjects = async (projects, inputs, commandExecutor = execCommand$1) => {
     const installFailures = await installNodeDependencies(projects, inputs, commandExecutor);
     const results = [];
     for (const project of projects) {
@@ -29545,7 +29597,7 @@ const runTerraformTarget = async (relativePath, rootPath, inputs, commandExecuto
     info(`${relativePath}: ${inputs.terraformLintCommand}`);
     await execConfiguredCommand(inputs.terraformLintCommand, rootPath, commandExecutor);
 };
-const execCommand = async (commandLine, args, cwd, options) => {
+const execCommand$1 = async (commandLine, args, cwd, options) => {
     const result = await exec(commandLine, args, {
         cwd,
         ignoreReturnCode: true,
@@ -29620,6 +29672,17 @@ const main = async () => {
         terraformLintCommand,
         workingDirectory,
     };
+    const releasePleaseChangedFiles = await resolveReleasePleaseMetadataOnlyPrChangedFiles(workingDirectory, execCommand).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        warning(`Unable to evaluate Release Please metadata-only PR skip logic. Continuing with normal checks. ${message}`);
+        return undefined;
+    });
+    if (releasePleaseChangedFiles) {
+        info(`Skipping checks for metadata-only Release Please PR: ${releasePleaseChangedFiles.join(", ")}`);
+        setOutput("selected_project_count", "0");
+        setOutput("selected_project_paths", "[]");
+        return;
+    }
     const { selectedProjects } = await selectProjectsForExecution(projects, runnerInputs);
     const selectedProjectPaths = selectedProjects.map((project) => project.relativePath);
     setOutput("selected_project_count", String(selectedProjects.length));
@@ -29670,6 +29733,17 @@ const parseBoolean = (value, label) => {
         return false;
     }
     throw new Error(`Expected ${label} to be true or false, received: ${value}`);
+};
+const execCommand = async (commandLine, args, cwd, options) => {
+    await exec(commandLine, args, {
+        cwd,
+        listeners: options?.stdout
+            ? {
+                stdout: options.stdout,
+            }
+            : undefined,
+        silent: options?.silent ?? false,
+    });
 };
 const readDepthInput = (name, envName) => {
     const value = readStringInput(name, envName, "-1").trim();
