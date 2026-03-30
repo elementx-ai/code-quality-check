@@ -85,35 +85,34 @@ test("resolveReleasePleaseMetadataOnlyPrChangedFiles returns changed files for m
     process.env.GITHUB_EVENT_NAME = "pull_request";
     process.env.GITHUB_EVENT_PATH = eventPath;
 
-    const changedFiles =
-      await resolveReleasePleaseMetadataOnlyPrChangedFiles(
-        tempDirectory,
-        async (commandLine, args, cwd, options) => {
-          assert.equal(commandLine, "git");
-          assert.equal(cwd, tempDirectory);
+    const changedFiles = await resolveReleasePleaseMetadataOnlyPrChangedFiles(
+      tempDirectory,
+      async (commandLine, args, cwd, options) => {
+        assert.equal(commandLine, "git");
+        assert.equal(cwd, tempDirectory);
 
-          if (args[0] === "rev-parse") {
-            options?.stdout?.(Buffer.from(`${tempDirectory}\n`));
-            return;
-          }
+        if (args[0] === "rev-parse") {
+          options?.stdout?.(Buffer.from(`${tempDirectory}\n`));
+          return;
+        }
 
-          if (args[0] === "diff") {
-            options?.stdout?.(
-              Buffer.from(
-                [
-                  ".release-please-manifest.json",
-                  "service/CHANGELOG.md",
-                  "service/package.json",
-                  "service/package-lock.json",
-                ].join("\n"),
-              ),
-            );
-            return;
-          }
+        if (args[0] === "diff") {
+          options?.stdout?.(
+            Buffer.from(
+              [
+                ".release-please-manifest.json",
+                "service/CHANGELOG.md",
+                "service/package.json",
+                "service/package-lock.json",
+              ].join("\n"),
+            ),
+          );
+          return;
+        }
 
-          throw new Error(`Unexpected git command: ${args.join(" ")}`);
-        },
-      );
+        throw new Error(`Unexpected git command: ${args.join(" ")}`);
+      },
+    );
 
     assert.deepEqual(changedFiles, [
       ".release-please-manifest.json",

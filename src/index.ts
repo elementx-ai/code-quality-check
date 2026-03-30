@@ -4,9 +4,7 @@ import * as exec from "@actions/exec";
 import path from "node:path";
 
 import { detectRepoMode, discoverProjects } from "./discovery.js";
-import {
-  resolveReleasePleaseMetadataOnlyPrChangedFiles,
-} from "./helpers/release-please.js";
+import { resolveReleasePleaseMetadataOnlyPrChangedFiles } from "./helpers/release-please.js";
 import { runProjects, selectProjectsForExecution } from "./runner.js";
 
 const main = async (): Promise<void> => {
@@ -133,8 +131,7 @@ const main = async (): Promise<void> => {
       workingDirectory,
       execCommand,
     ).catch((error: unknown) => {
-      const message =
-        error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
       core.warning(
         `Unable to evaluate Release Please metadata-only PR skip logic. Continuing with normal checks. ${message}`,
       );

@@ -45,9 +45,7 @@ const isReleasePleaseMetadataFile = (filename: string): boolean =>
   /(?:^|\/)package\.json$/i.test(filename) ||
   /(?:^|\/)package-lock\.json$/i.test(filename);
 
-const isBotAuthor = (
-  pullRequest: PullRequestPayload | undefined,
-): boolean => {
+const isBotAuthor = (pullRequest: PullRequestPayload | undefined): boolean => {
   const author = pullRequest?.user?.login ?? "";
   const authorType = pullRequest?.user?.type ?? "";
   return author === "app/github-actions" || authorType === "Bot";
