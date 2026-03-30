@@ -45,20 +45,40 @@ const isReleasePleaseMetadataFile = (filename: string): boolean =>
   /(?:^|\/)package\.json$/i.test(filename) ||
   /(?:^|\/)package-lock\.json$/i.test(filename);
 
-export const isReleasePleasePullRequest = (
+const isBotAuthor = (
   pullRequest: PullRequestPayload | undefined,
 ): boolean => {
   const author = pullRequest?.user?.login ?? "";
   const authorType = pullRequest?.user?.type ?? "";
+  return author === "app/github-actions" || authorType === "Bot";
+};
+
+const hasReleasePleaseMarker = (
+  pullRequest: PullRequestPayload | undefined,
+): boolean => {
   const headRef = pullRequest?.head?.ref ?? "";
   const body = pullRequest?.body ?? "";
-
   return (
-    (author === "app/github-actions" || authorType === "Bot") &&
-    (headRef.startsWith("release-please--") ||
-      body.includes("This PR was generated with [Release Please]"))
+    headRef.startsWith("release-please--") ||
+    body.includes("This PR was generated with [Release Please]")
   );
 };
+
+const resolvePullRequestDiff = (
+  pullRequest: PullRequestPayload | undefined,
+): { baseSha: string; headSha: string } | undefined => {
+  const baseSha = pullRequest?.base?.sha;
+  const headSha = pullRequest?.head?.sha;
+  if (!baseSha || !headSha) {
+    return undefined;
+  }
+
+  return { baseSha, headSha };
+};
+
+export const isReleasePleasePullRequest = (
+  pullRequest: PullRequestPayload | undefined,
+): boolean => isBotAuthor(pullRequest) && hasReleasePleaseMarker(pullRequest);
 
 export const isReleasePleaseMetadataOnlyChangeSet = (
   changedFiles: string[],
@@ -76,7 +96,9 @@ export const isReleasePleaseMetadataOnlyChangeSet = (
   );
 };
 
-const readGitHubEventPayload = async (): Promise<GitHubEventPayload | undefined> => {
+const readGitHubEventPayload = async (): Promise<
+  GitHubEventPayload | undefined
+> => {
   if (!isPullRequestEvent()) {
     return undefined;
   }
@@ -100,17 +122,16 @@ export const resolveReleasePleaseMetadataOnlyPrChangedFiles = async (
     return undefined;
   }
 
-  const baseSha = pullRequest?.base?.sha;
-  const headSha = pullRequest?.head?.sha;
-  if (!baseSha || !headSha) {
+  const pullRequestDiff = resolvePullRequestDiff(pullRequest);
+  if (!pullRequestDiff) {
     return undefined;
   }
 
   const gitRoot = await resolveGitRoot(workingDirectory, commandExecutor);
   const changedFiles = await resolveChangedFiles(
     gitRoot,
-    baseSha,
-    headSha,
+    pullRequestDiff.baseSha,
+    pullRequestDiff.headSha,
     commandExecutor,
   );
 

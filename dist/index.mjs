@@ -29162,15 +29162,26 @@ const isReleasePleaseMetadataFile = (filename) => filename === ".release-please-
     /(?:^|\/)changelog\.md$/i.test(filename) ||
     /(?:^|\/)package\.json$/i.test(filename) ||
     /(?:^|\/)package-lock\.json$/i.test(filename);
-const isReleasePleasePullRequest = (pullRequest) => {
+const isBotAuthor = (pullRequest) => {
     const author = pullRequest?.user?.login ?? "";
     const authorType = pullRequest?.user?.type ?? "";
+    return author === "app/github-actions" || authorType === "Bot";
+};
+const hasReleasePleaseMarker = (pullRequest) => {
     const headRef = pullRequest?.head?.ref ?? "";
     const body = pullRequest?.body ?? "";
-    return ((author === "app/github-actions" || authorType === "Bot") &&
-        (headRef.startsWith("release-please--") ||
-            body.includes("This PR was generated with [Release Please]")));
+    return (headRef.startsWith("release-please--") ||
+        body.includes("This PR was generated with [Release Please]"));
 };
+const resolvePullRequestDiff = (pullRequest) => {
+    const baseSha = pullRequest?.base?.sha;
+    const headSha = pullRequest?.head?.sha;
+    if (!baseSha || !headSha) {
+        return undefined;
+    }
+    return { baseSha, headSha };
+};
+const isReleasePleasePullRequest = (pullRequest) => isBotAuthor(pullRequest) && hasReleasePleaseMarker(pullRequest);
 const isReleasePleaseMetadataOnlyChangeSet = (changedFiles) => {
     const hasChangelog = changedFiles.some((filename) => /(?:^|\/)changelog\.md$/i.test(filename));
     const hasManifest = changedFiles.includes(".release-please-manifest.json");
@@ -29196,13 +29207,12 @@ const resolveReleasePleaseMetadataOnlyPrChangedFiles = async (workingDirectory, 
     if (!isReleasePleasePullRequest(pullRequest)) {
         return undefined;
     }
-    const baseSha = pullRequest?.base?.sha;
-    const headSha = pullRequest?.head?.sha;
-    if (!baseSha || !headSha) {
+    const pullRequestDiff = resolvePullRequestDiff(pullRequest);
+    if (!pullRequestDiff) {
         return undefined;
     }
     const gitRoot = await resolveGitRoot(workingDirectory, commandExecutor);
-    const changedFiles = await resolveChangedFiles(gitRoot, baseSha, headSha, commandExecutor);
+    const changedFiles = await resolveChangedFiles(gitRoot, pullRequestDiff.baseSha, pullRequestDiff.headSha, commandExecutor);
     if (!isReleasePleaseMetadataOnlyChangeSet(changedFiles)) {
         return undefined;
     }
