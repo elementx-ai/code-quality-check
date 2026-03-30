@@ -103,7 +103,12 @@ test("resolveReleasePleaseMetadataOnlyPrChangedFiles returns changed files for m
         }
 
         if (args[0] === "diff") {
-          assert.deepEqual(args, ["diff", "--name-only", "merge-base-sha", "head-sha"]);
+          assert.deepEqual(args, [
+            "diff",
+            "--name-only",
+            "merge-base-sha",
+            "head-sha",
+          ]);
           options?.stdout?.(
             Buffer.from(
               [
