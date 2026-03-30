@@ -3,7 +3,6 @@ on: pull_request
 
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
   should-run:
@@ -11,64 +10,14 @@ jobs:
     outputs:
       skip: ${{ steps.release-please-filter.outputs.skip }}
     steps:
-      - id: release-please-filter
-        uses: actions/github-script@v8
+      - uses: actions/checkout@v4
         with:
-          script: |
-            core.setOutput("skip", "false");
-
-            try {
-              const pr = context.payload.pull_request;
-              const author = pr?.user?.login ?? "";
-              const headRef = pr?.head?.ref ?? "";
-              const body = pr?.body ?? "";
-
-              const isReleasePleasePr =
-                (author === "app/github-actions" || pr?.user?.type === "Bot") &&
-                (
-                  headRef.startsWith("release-please--") ||
-                  body.includes("This PR was generated with [Release Please]")
-                );
-
-              if (!isReleasePleasePr) {
-                return;
-              }
-
-              const files = await github.paginate(github.rest.pulls.listFiles, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: pr.number,
-                per_page: 100,
-              });
-
-              const changedFiles = files.map((file) => file.filename);
-              const hasChangelog = changedFiles.some((filename) =>
-                /(?:^|\/)changelog\.md$/i.test(filename),
-              );
-              const hasManifest = changedFiles.includes(".release-please-manifest.json");
-              const onlyReleasePleaseMetadata =
-                hasChangelog &&
-                hasManifest &&
-                changedFiles.length > 0 &&
-                changedFiles.every(
-                  (filename) =>
-                    filename === ".release-please-manifest.json" ||
-                    /(?:^|\/)changelog\.md$/i.test(filename) ||
-                    /(?:^|\/)package\.json$/i.test(filename) ||
-                    /(?:^|\/)package-lock\.json$/i.test(filename),
-                );
-
-              core.info(
-                `release-please PR changed files: ${changedFiles.join(", ") || "(none)"}`,
-              );
-              core.setOutput("skip", onlyReleasePleaseMetadata ? "true" : "false");
-            } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
-              core.warning(
-                `Unable to evaluate Release Please PR skip logic; defaulting to running build-and-test. ${message}`,
-              );
-              core.setOutput("skip", "false");
-            }
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - id: release-please-filter
+        run: node ./scripts/release-please-should-run.js
 
   build-and-test:
     needs: should-run
