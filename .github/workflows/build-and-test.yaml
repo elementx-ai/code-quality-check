@@ -1,8 +1,69 @@
 name: Build and Test
 on: pull_request
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
+  should-run:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.release-please-filter.outputs.skip }}
+    steps:
+      - id: release-please-filter
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const author = pr?.user?.login ?? "";
+            const headRef = pr?.head?.ref ?? "";
+            const body = pr?.body ?? "";
+
+            const isReleasePleasePr =
+              (author === "app/github-actions" || pr?.user?.type === "Bot") &&
+              (
+                headRef.startsWith("release-please--") ||
+                body.includes("This PR was generated with [Release Please]")
+              );
+
+            if (!isReleasePleasePr) {
+              core.setOutput("skip", "false");
+              return;
+            }
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+
+            const changedFiles = files.map((file) => file.filename);
+            const hasChangelog = changedFiles.some((filename) =>
+              /(?:^|\/)changelog\.md$/i.test(filename),
+            );
+            const hasManifest = changedFiles.includes(".release-please-manifest.json");
+            const onlyReleasePleaseMetadata =
+              hasChangelog &&
+              hasManifest &&
+              changedFiles.length > 0 &&
+              changedFiles.every(
+                (filename) =>
+                  filename === ".release-please-manifest.json" ||
+                  /(?:^|\/)changelog\.md$/i.test(filename) ||
+                  /(?:^|\/)package\.json$/i.test(filename) ||
+                  /(?:^|\/)package-lock\.json$/i.test(filename),
+              );
+
+            core.info(
+              `release-please PR changed files: ${changedFiles.join(", ") || "(none)"}`,
+            );
+            core.setOutput("skip", onlyReleasePleaseMetadata ? "true" : "false");
+
   build-and-test:
+    needs: should-run
+    if: ${{ needs.should-run.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
