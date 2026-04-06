@@ -1,15 +1,42 @@
 name: Build and Test
 on: pull_request
 
+permissions:
+  contents: read
+
 jobs:
-  build-and-test:
+  should-run:
     runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.release-please-filter.outputs.skip }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
       - run: npm ci
-      - run: npm run build
-      - run: git diff --exit-code -- dist/index.mjs
-      - run: npm run test
+      - id: release-please-filter
+        run: node --import tsx ./scripts/release-please-should-run.ts
+
+  build-and-test:
+    needs: should-run
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip metadata-only Release Please PR
+        if: ${{ needs.should-run.outputs.skip == 'true' }}
+        run: echo "Skipping build-and-test for metadata-only Release Please PR."
+
+      - uses: actions/checkout@v4
+        if: ${{ needs.should-run.outputs.skip != 'true' }}
+      - uses: actions/setup-node@v4
+        if: ${{ needs.should-run.outputs.skip != 'true' }}
+        with:
+          node-version: "24"
+      - if: ${{ needs.should-run.outputs.skip != 'true' }}
+        run: |
+          npm ci
+          npm run build
+          git diff --exit-code -- dist/index.mjs
+          npm run test

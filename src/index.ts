@@ -3,6 +3,8 @@ import * as core from "@actions/core";
 import path from "node:path";
 
 import { detectRepoMode, discoverProjects } from "./discovery.js";
+import { execCommand } from "./helpers/exec.js";
+import { resolveReleasePleaseMetadataOnlyPrChangedFiles } from "./helpers/release-please.js";
 import { runProjects, selectProjectsForExecution } from "./runner.js";
 
 const main = async (): Promise<void> => {
@@ -123,6 +125,26 @@ const main = async (): Promise<void> => {
     terraformLintCommand,
     workingDirectory,
   };
+
+  const releasePleaseChangedFiles =
+    await resolveReleasePleaseMetadataOnlyPrChangedFiles(
+      workingDirectory,
+      execCommand,
+    ).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      core.warning(
+        `Unable to evaluate Release Please metadata-only PR skip logic. Continuing with normal checks. ${message}`,
+      );
+      return undefined;
+    });
+  if (releasePleaseChangedFiles) {
+    core.info(
+      `Skipping checks for metadata-only Release Please PR: ${releasePleaseChangedFiles.join(", ")}`,
+    );
+    core.setOutput("selected_project_count", "0");
+    core.setOutput("selected_project_paths", "[]");
+    return;
+  }
 
   const { selectedProjects } = await selectProjectsForExecution(
     projects,

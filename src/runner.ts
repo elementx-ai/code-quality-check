@@ -1,5 +1,4 @@
 import * as core from "@actions/core";
-import * as exec from "@actions/exec";
 
 import {
   filterProjectsByChanges,
@@ -9,6 +8,10 @@ import {
   resolveGitRoot,
   resolveMergeBase,
 } from "./helpers/git-changes.js";
+import {
+  ExecOptions,
+  execCommand as sharedExecCommand,
+} from "./helpers/exec.js";
 import {
   hasNodeLockfile,
   shouldUseRootWorkspaceInstall,
@@ -459,33 +462,17 @@ const runTerraformTarget = async (
   );
 };
 
-interface ExecOptions {
-  silent?: boolean;
-  stdout?: (data: Buffer) => void;
-}
-
 const execCommand = async (
   commandLine: string,
   args: string[],
   cwd: string,
   options?: ExecOptions,
 ): Promise<void> => {
-  const result = await exec.exec(commandLine, args, {
-    cwd,
-    ignoreReturnCode: true,
+  await sharedExecCommand(commandLine, args, cwd, {
+    rewrapExitCode: true,
     silent: options?.silent,
-    listeners: options?.stdout
-      ? {
-          stdout: options.stdout,
-        }
-      : undefined,
+    stdout: options?.stdout,
   });
-
-  if (result !== 0) {
-    throw new Error(
-      `Command failed with exit code ${result}: ${[commandLine, ...args].join(" ")}`,
-    );
-  }
 };
 
 const execConfiguredCommand = async (

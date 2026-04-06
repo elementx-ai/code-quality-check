@@ -35,6 +35,7 @@ import * as child from 'child_process';
 import { setTimeout as setTimeout$1 } from 'timers';
 import path$1 from 'node:path';
 import { promises as promises$1 } from 'node:fs';
+import fs$1 from 'node:fs/promises';
 
 // We use any as a valid input type
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -29091,6 +29092,22 @@ const normalizeRelativePath = (from, to) => {
     return relative.split(path$1.sep).join(path$1.posix.sep);
 };
 
+const execCommand$1 = async (commandLine, args, cwd, options) => {
+    const result = await exec(commandLine, args, {
+        cwd,
+        ignoreReturnCode: options?.rewrapExitCode ?? false,
+        listeners: options?.stdout
+            ? {
+                stdout: options.stdout,
+            }
+            : undefined,
+        silent: options?.silent ?? false,
+    });
+    if (options?.rewrapExitCode && result !== 0) {
+        throw new Error(`Command failed with exit code ${result}: ${[commandLine, ...args].join(" ")}`);
+    }
+};
+
 const formatError$2 = (error) => error instanceof Error ? error.message : String(error);
 const resolveGitRoot = async (workingDirectory, commandExecutor) => {
     let stdout = "";
@@ -29155,6 +29172,68 @@ const findDefaultBaseRef = () => {
 const isPullRequestEvent = () => {
     const eventName = process.env.GITHUB_EVENT_NAME;
     return eventName === "pull_request" || eventName === "pull_request_target";
+};
+
+const isReleasePleaseMetadataFile = (filename) => filename === ".release-please-manifest.json" ||
+    /(?:^|\/)changelog\.md$/i.test(filename) ||
+    /(?:^|\/)package\.json$/i.test(filename) ||
+    /(?:^|\/)package-lock\.json$/i.test(filename);
+const isBotAuthor = (pullRequest) => {
+    const author = pullRequest?.user?.login ?? "";
+    const authorType = pullRequest?.user?.type ?? "";
+    return author === "app/github-actions" || authorType === "Bot";
+};
+const hasReleasePleaseMarker = (pullRequest) => {
+    const headRef = pullRequest?.head?.ref ?? "";
+    const body = pullRequest?.body ?? "";
+    return (headRef.startsWith("release-please--") ||
+        body.includes("This PR was generated with [Release Please]"));
+};
+const resolvePullRequestDiff = (pullRequest) => {
+    const baseSha = pullRequest?.base?.sha;
+    const headSha = pullRequest?.head?.sha;
+    if (!baseSha || !headSha) {
+        return undefined;
+    }
+    return { baseSha, headSha };
+};
+const isReleasePleasePullRequest = (pullRequest) => isBotAuthor(pullRequest) && hasReleasePleaseMarker(pullRequest);
+const isReleasePleaseMetadataOnlyChangeSet = (changedFiles) => {
+    const hasChangelog = changedFiles.some((filename) => /(?:^|\/)changelog\.md$/i.test(filename));
+    const hasManifest = changedFiles.includes(".release-please-manifest.json");
+    return (hasChangelog &&
+        hasManifest &&
+        changedFiles.length > 0 &&
+        changedFiles.every(isReleasePleaseMetadataFile));
+};
+const readGitHubEventPayload = async () => {
+    if (!isPullRequestEvent()) {
+        return undefined;
+    }
+    const eventPath = process.env.GITHUB_EVENT_PATH;
+    if (!eventPath) {
+        return undefined;
+    }
+    const raw = await fs$1.readFile(eventPath, "utf8");
+    return JSON.parse(raw);
+};
+const resolveReleasePleaseMetadataOnlyPrChangedFiles = async (workingDirectory, commandExecutor) => {
+    const eventPayload = await readGitHubEventPayload();
+    const pullRequest = eventPayload?.pull_request;
+    if (!isReleasePleasePullRequest(pullRequest)) {
+        return undefined;
+    }
+    const pullRequestDiff = resolvePullRequestDiff(pullRequest);
+    if (!pullRequestDiff) {
+        return undefined;
+    }
+    const gitRoot = await resolveGitRoot(workingDirectory, commandExecutor);
+    const mergeBase = await resolveMergeBase(gitRoot, pullRequestDiff.baseSha, pullRequestDiff.headSha, commandExecutor);
+    const changedFiles = await resolveChangedFiles(gitRoot, mergeBase, pullRequestDiff.headSha, commandExecutor);
+    if (!isReleasePleaseMetadataOnlyChangeSet(changedFiles)) {
+        return undefined;
+    }
+    return changedFiles;
 };
 
 const pathExists = async (filePath) => {
@@ -29546,19 +29625,11 @@ const runTerraformTarget = async (relativePath, rootPath, inputs, commandExecuto
     await execConfiguredCommand(inputs.terraformLintCommand, rootPath, commandExecutor);
 };
 const execCommand = async (commandLine, args, cwd, options) => {
-    const result = await exec(commandLine, args, {
-        cwd,
-        ignoreReturnCode: true,
+    await execCommand$1(commandLine, args, cwd, {
+        rewrapExitCode: true,
         silent: options?.silent,
-        listeners: options?.stdout
-            ? {
-                stdout: options.stdout,
-            }
-            : undefined,
+        stdout: options?.stdout,
     });
-    if (result !== 0) {
-        throw new Error(`Command failed with exit code ${result}: ${[commandLine, ...args].join(" ")}`);
-    }
 };
 const execConfiguredCommand = async (commandLine, cwd, commandExecutor) => {
     const [tool, ...args] = splitCommandLine(commandLine);
@@ -29620,6 +29691,17 @@ const main = async () => {
         terraformLintCommand,
         workingDirectory,
     };
+    const releasePleaseChangedFiles = await resolveReleasePleaseMetadataOnlyPrChangedFiles(workingDirectory, execCommand$1).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        warning(`Unable to evaluate Release Please metadata-only PR skip logic. Continuing with normal checks. ${message}`);
+        return undefined;
+    });
+    if (releasePleaseChangedFiles) {
+        info(`Skipping checks for metadata-only Release Please PR: ${releasePleaseChangedFiles.join(", ")}`);
+        setOutput("selected_project_count", "0");
+        setOutput("selected_project_paths", "[]");
+        return;
+    }
     const { selectedProjects } = await selectProjectsForExecution(projects, runnerInputs);
     const selectedProjectPaths = selectedProjects.map((project) => project.relativePath);
     setOutput("selected_project_count", String(selectedProjects.length));
