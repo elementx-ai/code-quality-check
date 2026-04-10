@@ -29414,6 +29414,12 @@ const normalizePrettierFormatScript = (script, relativePath) => {
         throw new Error(`${relativePath}: the "format" script cannot include inline environment assignments when prettier check-mode enforcement is needed. ` +
             `Found: "${script}". Move env vars to the workflow/job environment and use a standalone prettier command.`);
     }
+    return {
+        args: buildNormalizedArgs(args),
+        commandLine: "prettier",
+    };
+};
+const buildNormalizedArgs = (args) => {
     const normalizedArgs = args.filter((token) => token !== "--check=false" && !isPrettierWriteFlag(token));
     if (!normalizedArgs.some(hasCheckEnabled)) {
         normalizedArgs.push("--check");
@@ -29421,10 +29427,7 @@ const normalizePrettierFormatScript = (script, relativePath) => {
     if (!normalizedArgs.some((token) => token.includes("CHANGELOG"))) {
         normalizedArgs.push("!**/CHANGELOG.md");
     }
-    return {
-        args: normalizedArgs,
-        commandLine: "prettier",
-    };
+    return normalizedArgs;
 };
 
 const nodeScriptOrder = ["format", "lint", "test", "build"];

@@ -387,7 +387,15 @@ test("runProjects rewrites prettier --write to --check for format script", async
   assert.deepEqual(summary.passedProjectPaths, ["app"]);
   assert.deepEqual(calls, [
     {
-      args: ["exec", "--", "prettier", ".", "--ignore-unknown", "--check", "!**/CHANGELOG.md"],
+      args: [
+        "exec",
+        "--",
+        "prettier",
+        ".",
+        "--ignore-unknown",
+        "--check",
+        "!**/CHANGELOG.md",
+      ],
       commandLine: "npm",
       cwd: "/tmp/app",
     },

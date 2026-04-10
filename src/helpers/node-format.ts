@@ -75,6 +75,13 @@ export const normalizePrettierFormatScript = (
     );
   }
 
+  return {
+    args: buildNormalizedArgs(args),
+    commandLine: "prettier",
+  };
+};
+
+const buildNormalizedArgs = (args: string[]): string[] => {
   const normalizedArgs = args.filter(
     (token) => token !== "--check=false" && !isPrettierWriteFlag(token),
   );
@@ -84,9 +91,5 @@ export const normalizePrettierFormatScript = (
   if (!normalizedArgs.some((token) => token.includes("CHANGELOG"))) {
     normalizedArgs.push("!**/CHANGELOG.md");
   }
-
-  return {
-    args: normalizedArgs,
-    commandLine: "prettier",
-  };
+  return normalizedArgs;
 };
