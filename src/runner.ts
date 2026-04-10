@@ -5,6 +5,7 @@ import {
   findDefaultBaseRef,
   isPullRequestEvent,
   resolveChangedFiles,
+  resolveFirstParent,
   resolveGitRoot,
   resolveMergeBase,
 } from "./helpers/git-changes.js";
@@ -130,6 +131,14 @@ const resolveDiffBase = async (
 ): Promise<string> => {
   if (!isPullRequestEvent()) {
     return baseRef;
+  }
+
+  const firstParent = await resolveFirstParent(gitRoot, headRef, execCommand);
+  if (firstParent) {
+    core.info(
+      `HEAD is a merge commit. Using first parent ${firstParent} as diff base for pull request change detection.`,
+    );
+    return firstParent;
   }
 
   const mergeBase = await resolveMergeBase(

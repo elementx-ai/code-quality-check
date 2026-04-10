@@ -29173,6 +29173,31 @@ const isPullRequestEvent = () => {
     const eventName = process.env.GITHUB_EVENT_NAME;
     return eventName === "pull_request" || eventName === "pull_request_target";
 };
+const resolveFirstParent = async (gitRoot, ref, commandExecutor) => {
+    let stdout = "";
+    try {
+        await commandExecutor("git", ["rev-parse", "--verify", `${ref}^2`], gitRoot, {
+            silent: true,
+            stdout: (data) => {
+                stdout += data.toString();
+            },
+        });
+    }
+    catch {
+        return undefined;
+    }
+    if (!stdout.trim()) {
+        return undefined;
+    }
+    let firstParent = "";
+    await commandExecutor("git", ["rev-parse", "--verify", `${ref}^1`], gitRoot, {
+        silent: true,
+        stdout: (data) => {
+            firstParent += data.toString();
+        },
+    });
+    return firstParent.trim() || undefined;
+};
 
 const isReleasePleaseMetadataFile = (filename) => filename === ".release-please-manifest.json" ||
     /(?:^|\/)changelog\.md$/i.test(filename) ||
@@ -29433,6 +29458,11 @@ const selectProjectsForExecution = async (projects, inputs) => {
 const resolveDiffBase = async (gitRoot, baseRef, headRef) => {
     if (!isPullRequestEvent()) {
         return baseRef;
+    }
+    const firstParent = await resolveFirstParent(gitRoot, headRef, execCommand);
+    if (firstParent) {
+        info(`HEAD is a merge commit. Using first parent ${firstParent} as diff base for pull request change detection.`);
+        return firstParent;
     }
     const mergeBase = await resolveMergeBase(gitRoot, baseRef, headRef, execCommand);
     info(`Using merge-base ${mergeBase} for pull request change detection.`);
