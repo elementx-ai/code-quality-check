@@ -48,7 +48,7 @@ inputs:
   changed-only:
     description: Only run checks for discovered projects that contain changed files.
     required: false
-    default: "false"
+    default: "true"
   base-ref:
     description: Base git ref or SHA to diff against when changed-only is true.
     required: false

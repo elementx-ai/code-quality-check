@@ -29647,7 +29647,7 @@ const main = async () => {
     const autoInstall = readBooleanInput("auto-install", "PROJECT_CHECKS_AUTO_INSTALL", true);
     const includeRoot = readBooleanInput("include-root", "PROJECT_CHECKS_INCLUDE_ROOT", true);
     const projectDepth = readDepthInput("project-depth", "PROJECT_CHECKS_PROJECT_DEPTH");
-    const changedOnly = readBooleanInput("changed-only", "PROJECT_CHECKS_CHANGED_ONLY", false);
+    const changedOnly = readBooleanInput("changed-only", "PROJECT_CHECKS_CHANGED_ONLY", true);
     const baseRef = readOptionalStringInput("base-ref", "PROJECT_CHECKS_BASE_REF");
     const headRef = readStringInput("head-ref", "PROJECT_CHECKS_HEAD_REF", "HEAD");
     const nodeInstallCommand = readStringInput("node-install-command", "PROJECT_CHECKS_NODE_INSTALL_COMMAND", "npm ci");

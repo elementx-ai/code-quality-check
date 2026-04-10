@@ -116,7 +116,7 @@ Useful inputs:
 - `node-install-command`: default `npm ci`
 - `python-version`: default `3.12`
 - `uv-version`: optional
-- `changed-only`: default `false`
+- `changed-only`: default `true`
 - `base-ref`: optional
 - `head-ref`: default `HEAD`
 
