@@ -32,7 +32,7 @@ const main = async (): Promise<void> => {
   const changedOnly = readBooleanInput(
     "changed-only",
     "PROJECT_CHECKS_CHANGED_ONLY",
-    false,
+    true,
   );
   const baseRef = readOptionalStringInput(
     "base-ref",
