@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.5.0...code-quality-check-v0.5.1) (2026-04-10)
+
+
+### Bug Fixes
+
+* Use merge commit first parent as diff base for PR change detection ([#22](https://github.com/elementx-ai/code-quality-check/issues/22)) ([38fb13e](https://github.com/elementx-ai/code-quality-check/commit/38fb13e3115a6232a67de71b8cf31871ebb58daf))
+
 ## [0.5.0](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.4.2...code-quality-check-v0.5.0) (2026-04-10)
 
 ### Features
