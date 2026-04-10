@@ -81,6 +81,9 @@ export const normalizePrettierFormatScript = (
   if (!normalizedArgs.some(hasCheckEnabled)) {
     normalizedArgs.push("--check");
   }
+  if (!normalizedArgs.some((token) => token.includes("CHANGELOG"))) {
+    normalizedArgs.push("!**/CHANGELOG.md");
+  }
 
   return {
     args: normalizedArgs,

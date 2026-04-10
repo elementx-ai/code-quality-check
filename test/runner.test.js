@@ -86,7 +86,7 @@ test("runProjects returns passed and failed project paths", async () => {
   ]);
   assert.deepEqual(calls, [
     {
-      args: ["exec", "--", "prettier", ".", "--check"],
+      args: ["exec", "--", "prettier", ".", "--check", "!**/CHANGELOG.md"],
       commandLine: "npm",
       cwd: "/tmp/evaluator",
     },
@@ -183,7 +183,7 @@ test("runProjects installs workspace dependencies once from the root", async () 
         cwd: tempDirectory,
       },
       {
-        args: ["exec", "--", "prettier", ".", "--check"],
+        args: ["exec", "--", "prettier", ".", "--check", "!**/CHANGELOG.md"],
         commandLine: "npm",
         cwd: path.join(tempDirectory, "packages", "evaluator"),
       },
@@ -387,7 +387,7 @@ test("runProjects rewrites prettier --write to --check for format script", async
   assert.deepEqual(summary.passedProjectPaths, ["app"]);
   assert.deepEqual(calls, [
     {
-      args: ["exec", "--", "prettier", ".", "--ignore-unknown", "--check"],
+      args: ["exec", "--", "prettier", ".", "--ignore-unknown", "--check", "!**/CHANGELOG.md"],
       commandLine: "npm",
       cwd: "/tmp/app",
     },
@@ -443,7 +443,7 @@ test("runProjects rewrites prettier -w to --check for format script", async () =
   assert.deepEqual(summary.passedProjectPaths, ["app"]);
   assert.deepEqual(calls, [
     {
-      args: ["exec", "--", "prettier", ".", "--check"],
+      args: ["exec", "--", "prettier", ".", "--check", "!**/CHANGELOG.md"],
       commandLine: "npm",
       cwd: "/tmp/app",
     },
@@ -499,7 +499,7 @@ test("runProjects removes --write=false and enforces --check", async () => {
   assert.deepEqual(summary.passedProjectPaths, ["app"]);
   assert.deepEqual(calls, [
     {
-      args: ["exec", "--", "prettier", ".", "--check"],
+      args: ["exec", "--", "prettier", ".", "--check", "!**/CHANGELOG.md"],
       commandLine: "npm",
       cwd: "/tmp/app",
     },
@@ -611,7 +611,7 @@ test("runProjects removes --write when --check already exists", async () => {
   assert.deepEqual(summary.passedProjectPaths, ["app"]);
   assert.deepEqual(calls, [
     {
-      args: ["exec", "--", "prettier", "--check", "."],
+      args: ["exec", "--", "prettier", "--check", ".", "!**/CHANGELOG.md"],
       commandLine: "npm",
       cwd: "/tmp/app",
     },
@@ -667,7 +667,7 @@ test("runProjects rewrites --check=false to --check and removes --write flags", 
   assert.deepEqual(summary.passedProjectPaths, ["app"]);
   assert.deepEqual(calls, [
     {
-      args: ["exec", "--", "prettier", ".", "--check"],
+      args: ["exec", "--", "prettier", ".", "--check", "!**/CHANGELOG.md"],
       commandLine: "npm",
       cwd: "/tmp/app",
     },
