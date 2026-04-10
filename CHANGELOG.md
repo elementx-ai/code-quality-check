@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.4.2...code-quality-check-v0.5.0) (2026-04-10)
+
+
+### Features
+
+* ignore release-please metadata-only PRs ([#19](https://github.com/elementx-ai/code-quality-check/issues/19)) ([b221bd5](https://github.com/elementx-ai/code-quality-check/commit/b221bd5d4fdd00b47213d4f5e9dddb9492db97f0))
+
+
+### Bug Fixes
+
+* Default changed-only to true ([#21](https://github.com/elementx-ai/code-quality-check/issues/21)) ([43f5b43](https://github.com/elementx-ai/code-quality-check/commit/43f5b4386ebfbd1bc1a6d8d196b3fca5fdb5af90))
+
 ## [0.4.2](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.4.1...code-quality-check-v0.4.2) (2026-03-24)
 
 ### Bug Fixes
