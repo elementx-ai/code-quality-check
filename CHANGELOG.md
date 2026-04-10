@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.5.1...code-quality-check-v0.5.2) (2026-04-10)
+
+
+### Bug Fixes
+
+* Exclude CHANGELOG.md from prettier checks ([#24](https://github.com/elementx-ai/code-quality-check/issues/24)) ([4c635fc](https://github.com/elementx-ai/code-quality-check/commit/4c635fc56406cbd2ff6233ed74562a0c4b245417))
+
 ## [0.5.1](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.5.0...code-quality-check-v0.5.1) (2026-04-10)
 
 
