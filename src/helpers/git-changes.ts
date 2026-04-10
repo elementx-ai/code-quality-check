@@ -157,17 +157,12 @@ export const resolveFirstParent = async (
 
   let firstParent = "";
 
-  await commandExecutor(
-    "git",
-    ["rev-parse", "--verify", `${ref}^1`],
-    gitRoot,
-    {
-      silent: true,
-      stdout: (data) => {
-        firstParent += data.toString();
-      },
+  await commandExecutor("git", ["rev-parse", "--verify", `${ref}^1`], gitRoot, {
+    silent: true,
+    stdout: (data) => {
+      firstParent += data.toString();
     },
-  );
+  });
 
   return firstParent.trim() || undefined;
 };
