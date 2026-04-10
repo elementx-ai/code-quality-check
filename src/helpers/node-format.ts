@@ -75,15 +75,21 @@ export const normalizePrettierFormatScript = (
     );
   }
 
+  return {
+    args: buildNormalizedArgs(args),
+    commandLine: "prettier",
+  };
+};
+
+const buildNormalizedArgs = (args: string[]): string[] => {
   const normalizedArgs = args.filter(
     (token) => token !== "--check=false" && !isPrettierWriteFlag(token),
   );
   if (!normalizedArgs.some(hasCheckEnabled)) {
     normalizedArgs.push("--check");
   }
-
-  return {
-    args: normalizedArgs,
-    commandLine: "prettier",
-  };
+  if (!normalizedArgs.some((token) => token.includes("CHANGELOG"))) {
+    normalizedArgs.push("!**/CHANGELOG.md");
+  }
+  return normalizedArgs;
 };
