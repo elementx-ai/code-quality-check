@@ -4,6 +4,9 @@ import path from "node:path";
 
 import { detectRepoMode, discoverProjects } from "./discovery.js";
 import { execCommand } from "./helpers/exec.js";
+import { resolveGitRoot } from "./helpers/git-changes.js";
+import { findNodeConfigViolations } from "./helpers/node-config.js";
+import { findPythonConfigViolations } from "./helpers/python-config.js";
 import { resolveReleasePleaseMetadataOnlyPrChangedFiles } from "./helpers/release-please.js";
 import { runProjects, selectProjectsForExecution } from "./runner.js";
 
@@ -163,6 +166,27 @@ const main = async (): Promise<void> => {
   if (selectedProjects.length === 0) {
     core.info("No discovered projects matched the current change set.");
     return;
+  }
+
+  const configBoundary = await resolveGitRoot(
+    workingDirectory,
+    execCommand,
+  ).catch(() => workingDirectory);
+  const [nodeConfigViolations, pythonConfigViolations] = await Promise.all([
+    findNodeConfigViolations(selectedProjects, configBoundary),
+    findPythonConfigViolations(selectedProjects, configBoundary),
+  ]);
+  const configViolations = [...nodeConfigViolations, ...pythonConfigViolations];
+  if (configViolations.length > 0) {
+    const detail = configViolations
+      .map(
+        (violation) =>
+          `${violation.relativePath}: ${violation.reasons.join("; ")}`,
+      )
+      .join("\n");
+    throw new Error(
+      `Project dependency configuration policy violations:\n${detail}`,
+    );
   }
 
   core.info(`Running checks for ${selectedProjects.length} project root(s).`);

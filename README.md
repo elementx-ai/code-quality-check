@@ -36,12 +36,27 @@ Format-script enforcement:
 
 `test` and `build` remain optional. Missing optional scripts are logged and do not fail the action.
 
+Node configuration enforcement:
+
+- every Node project must have a `.nvmrc` pinning the Node version (a numeric version such as `24`, a `v`-prefixed or partial version, or an nvm alias like `lts/*`)
+- every Node project must have a `.npmrc` setting `min-release-age` to at least `3` (days), which delays installing newly published package versions as a supply-chain safeguard (requires npm v11.10+)
+- both files are resolved from the project directory upward to the repository root, so a single root `.nvmrc` and `.npmrc` cover every package in a monorepo
+- a missing or invalid `.nvmrc` or `.npmrc` fails the action
+- the check honors `changed-only`: a project is validated when it has changed files, so adding the config counts as the change that brings the project into compliance
+
 Python checks:
 
 - `uv run ruff format --check .`
 - `uv run ruff check .`
 
 Python checks only run when the action detects Ruff usage in `pyproject.toml`. Otherwise the action emits a warning and continues.
+
+Python configuration enforcement:
+
+- every Python project must configure a uv [dependency cooldown](https://docs.astral.sh/uv/concepts/resolution/#dependency-cooldowns) of at least `3` days by setting `exclude-newer` to a duration, which delays resolving newly published package versions as a supply-chain safeguard
+- the duration may be a friendly value (`"3 days"`, `"72 hours"`, `"1 week"`) or an ISO 8601 duration (`"P3D"`, `"PT72H"`); an absolute date is rejected because it is a fixed pin rather than a rolling cooldown
+- the setting is read from `[tool.uv]` in `pyproject.toml` or from `uv.toml`, resolved from the project directory upward to the repository root so a workspace root config covers every member
+- a missing, too-short, or unparseable cooldown fails the action, and the check honors `changed-only` the same way as the Node checks
 
 ## Usage
 
