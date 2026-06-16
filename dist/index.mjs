@@ -29108,6 +29108,264 @@ const execCommand$1 = async (commandLine, args, cwd, options) => {
     }
 };
 
+const MIN_DEPENDENCY_AGE_DAYS = 3;
+const ancestorChain = (startDir, boundaryDir) => {
+    const boundary = path$1.resolve(boundaryDir);
+    const start = path$1.resolve(startDir);
+    const relative = path$1.relative(boundary, start);
+    if (relative.startsWith("..") || path$1.isAbsolute(relative)) {
+        return [start];
+    }
+    const segments = relative === "" ? [] : relative.split(path$1.sep);
+    return [
+        boundary,
+        ...segments.map((_, index) => path$1.join(boundary, ...segments.slice(0, index + 1))),
+    ].reverse();
+};
+const readFileIfExists = async (filePath) => {
+    try {
+        return await promises$1.readFile(filePath, "utf8");
+    }
+    catch {
+        return undefined;
+    }
+};
+const readFileUpwards = async (startDir, boundaryDir, fileName) => {
+    const candidates = ancestorChain(startDir, boundaryDir).map((directory) => path$1.join(directory, fileName));
+    for (const candidate of candidates) {
+        const content = await readFileIfExists(candidate);
+        if (content !== undefined) {
+            return {
+                content,
+                relativePath: path$1.relative(boundaryDir, candidate) || fileName,
+            };
+        }
+    }
+    return undefined;
+};
+
+const nodeVersionPattern = /^v?\d+(?:\.\d+){0,2}$/;
+const nodeAliasPattern = /^(?:node|stable|lts\/\*|lts\/[a-z0-9._-]+)$/i;
+const isValidNodeVersion = (value) => nodeVersionPattern.test(value) || nodeAliasPattern.test(value);
+const firstNonEmptyLine = (content) => content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0) ?? "";
+const parseMinReleaseAge = (content) => content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith(";") && !line.startsWith("#"))
+    .map((line) => /^min-release-age\s*=\s*(.+)$/i.exec(line))
+    .filter((match) => match !== null)
+    .map((match) => match[1].trim().replace(/^["']|["']$/g, ""))
+    .at(-1);
+const validateNvmrc = async (rootPath, workingDirectory) => {
+    const resolved = await readFileUpwards(rootPath, workingDirectory, ".nvmrc");
+    if (!resolved) {
+        return `missing a .nvmrc file pinning the Node version (for example "24")`;
+    }
+    const version = firstNonEmptyLine(resolved.content);
+    if (!isValidNodeVersion(version)) {
+        return `${resolved.relativePath} must contain a valid Node version, found: "${version || "<empty>"}"`;
+    }
+    return undefined;
+};
+const validateNpmrc = async (rootPath, workingDirectory) => {
+    const resolved = await readFileUpwards(rootPath, workingDirectory, ".npmrc");
+    if (!resolved) {
+        return `missing a .npmrc file with "min-release-age=${MIN_DEPENDENCY_AGE_DAYS}" (requires npm v11.10+)`;
+    }
+    const rawValue = parseMinReleaseAge(resolved.content);
+    if (rawValue === undefined) {
+        return `${resolved.relativePath} must set "min-release-age" to at least ${MIN_DEPENDENCY_AGE_DAYS}, but the setting is not present`;
+    }
+    const days = Number.parseInt(rawValue, 10);
+    if (Number.isNaN(days) || String(days) !== rawValue) {
+        return `${resolved.relativePath} has an invalid "min-release-age" value: "${rawValue}" (expected an integer number of days)`;
+    }
+    if (days < MIN_DEPENDENCY_AGE_DAYS) {
+        return `${resolved.relativePath} sets "min-release-age=${days}" but the minimum is ${MIN_DEPENDENCY_AGE_DAYS} days`;
+    }
+    return undefined;
+};
+const projectHasNodeTarget = (project) => project.targets.some((target) => target.ecosystem === "node");
+const findNodeConfigViolations = async (projects, workingDirectory) => {
+    const nodeProjects = projects.filter(projectHasNodeTarget);
+    const violations = await Promise.all(nodeProjects.map(async (project) => {
+        const reasons = (await Promise.all([
+            validateNvmrc(project.rootPath, workingDirectory),
+            validateNpmrc(project.rootPath, workingDirectory),
+        ])).filter((reason) => reason !== undefined);
+        return reasons.length > 0
+            ? { reasons, relativePath: project.relativePath }
+            : undefined;
+    }));
+    return violations.filter((violation) => violation !== undefined);
+};
+
+const SECONDS_PER_DAY = 86400;
+const MIN_COOLDOWN_SECONDS = MIN_DEPENDENCY_AGE_DAYS * SECONDS_PER_DAY;
+const unitSeconds = {
+    s: 1,
+    sec: 1,
+    secs: 1,
+    second: 1,
+    seconds: 1,
+    m: 60,
+    min: 60,
+    mins: 60,
+    minute: 60,
+    minutes: 60,
+    h: 3600,
+    hr: 3600,
+    hrs: 3600,
+    hour: 3600,
+    hours: 3600,
+    d: SECONDS_PER_DAY,
+    day: SECONDS_PER_DAY,
+    days: SECONDS_PER_DAY,
+    w: 7 * SECONDS_PER_DAY,
+    wk: 7 * SECONDS_PER_DAY,
+    wks: 7 * SECONDS_PER_DAY,
+    week: 7 * SECONDS_PER_DAY,
+    weeks: 7 * SECONDS_PER_DAY,
+    mo: 30 * SECONDS_PER_DAY,
+    mos: 30 * SECONDS_PER_DAY,
+    month: 30 * SECONDS_PER_DAY,
+    months: 30 * SECONDS_PER_DAY,
+    y: 365 * SECONDS_PER_DAY,
+    yr: 365 * SECONDS_PER_DAY,
+    yrs: 365 * SECONDS_PER_DAY,
+    year: 365 * SECONDS_PER_DAY,
+    years: 365 * SECONDS_PER_DAY,
+};
+const parseNumber = (value) => value === undefined ? 0 : Number.parseFloat(value);
+const parseIsoDuration = (value) => {
+    const match = /^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/i.exec(value);
+    if (!match) {
+        return undefined;
+    }
+    const [, years, months, weeks, days, hours, minutes, seconds] = match;
+    if ([years, months, weeks, days, hours, minutes, seconds].every((part) => part === undefined)) {
+        return undefined;
+    }
+    return (parseNumber(years) * unitSeconds.year +
+        parseNumber(months) * unitSeconds.mo +
+        parseNumber(weeks) * unitSeconds.week +
+        parseNumber(days) * unitSeconds.day +
+        parseNumber(hours) * unitSeconds.hour +
+        parseNumber(minutes) * unitSeconds.minute +
+        parseNumber(seconds));
+};
+const friendlyTokenPattern = /(\d+(?:\.\d+)?)\s*([a-zµ]+)/gi;
+const parseFriendlyDuration = (value) => {
+    const matches = [...value.matchAll(friendlyTokenPattern)];
+    if (matches.length === 0) {
+        return undefined;
+    }
+    const remainder = value.replace(friendlyTokenPattern, "").replace(/\s+/g, "");
+    if (remainder.length > 0) {
+        return undefined;
+    }
+    const factors = matches.map((match) => {
+        const factor = unitSeconds[match[2].toLowerCase()];
+        return factor === undefined
+            ? undefined
+            : Number.parseFloat(match[1]) * factor;
+    });
+    if (factors.some((factor) => factor === undefined)) {
+        return undefined;
+    }
+    return factors.reduce((sum, factor) => sum + (factor ?? 0), 0);
+};
+const durationToSeconds = (value) => /^P/i.test(value) ? parseIsoDuration(value) : parseFriendlyDuration(value);
+const tableBody = (content, table) => {
+    const lines = content.split(/\r?\n/);
+    const isHeader = (line) => /^\s*\[/.test(line);
+    if (table === null) {
+        const headerIndex = lines.findIndex(isHeader);
+        return lines
+            .slice(0, headerIndex === -1 ? lines.length : headerIndex)
+            .join("\n");
+    }
+    const headerPattern = new RegExp(`^\\s*\\[${table.replace(/\./g, "\\.")}\\]\\s*(#.*)?$`);
+    const startIndex = lines.findIndex((line) => headerPattern.test(line));
+    if (startIndex === -1) {
+        return undefined;
+    }
+    const afterHeader = lines.slice(startIndex + 1);
+    const nextHeaderIndex = afterHeader.findIndex(isHeader);
+    return afterHeader
+        .slice(0, nextHeaderIndex === -1 ? afterHeader.length : nextHeaderIndex)
+        .join("\n");
+};
+const excludeNewerPattern = /^\s*exclude-newer\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))/m;
+const readExcludeNewer = (body) => {
+    if (body === undefined) {
+        return undefined;
+    }
+    const match = excludeNewerPattern.exec(body);
+    if (!match) {
+        return undefined;
+    }
+    return (match[1] ?? match[2] ?? match[3])?.trim();
+};
+const resolveExcludeNewer = async (rootPath, workingDirectory) => {
+    const directories = ancestorChain(rootPath, workingDirectory);
+    for (const directory of directories) {
+        const uvToml = await readFileIfExists(path$1.join(directory, "uv.toml"));
+        const fromUvToml = uvToml === undefined
+            ? undefined
+            : readExcludeNewer(tableBody(uvToml, null));
+        if (fromUvToml !== undefined) {
+            return {
+                relativePath: path$1.relative(workingDirectory, path$1.join(directory, "uv.toml")) ||
+                    "uv.toml",
+                value: fromUvToml,
+            };
+        }
+        const pyproject = await readFileIfExists(path$1.join(directory, "pyproject.toml"));
+        const fromPyproject = pyproject === undefined
+            ? undefined
+            : readExcludeNewer(tableBody(pyproject, "tool.uv"));
+        if (fromPyproject !== undefined) {
+            return {
+                relativePath: path$1.relative(workingDirectory, path$1.join(directory, "pyproject.toml")) || "pyproject.toml",
+                value: fromPyproject,
+            };
+        }
+    }
+    return undefined;
+};
+const validateUvCooldown = async (rootPath, workingDirectory) => {
+    const resolved = await resolveExcludeNewer(rootPath, workingDirectory);
+    if (!resolved) {
+        return `missing a uv dependency cooldown: set "exclude-newer" to at least "${MIN_DEPENDENCY_AGE_DAYS} days" under [tool.uv] in pyproject.toml or in uv.toml`;
+    }
+    if (/^\d{4}-\d{2}-\d{2}/.test(resolved.value)) {
+        return `${resolved.relativePath} sets "exclude-newer" to a fixed date ("${resolved.value}"); use a duration such as "${MIN_DEPENDENCY_AGE_DAYS} days" for a rolling cooldown`;
+    }
+    const seconds = durationToSeconds(resolved.value);
+    if (seconds === undefined) {
+        return `${resolved.relativePath} has an unparseable "exclude-newer" duration: "${resolved.value}"`;
+    }
+    if (seconds < MIN_COOLDOWN_SECONDS) {
+        return `${resolved.relativePath} sets "exclude-newer=${resolved.value}" but the minimum cooldown is ${MIN_DEPENDENCY_AGE_DAYS} days`;
+    }
+    return undefined;
+};
+const projectHasPythonTarget = (project) => project.targets.some((target) => target.ecosystem === "python");
+const findPythonConfigViolations = async (projects, workingDirectory) => {
+    const pythonProjects = projects.filter(projectHasPythonTarget);
+    const violations = await Promise.all(pythonProjects.map(async (project) => {
+        const reason = await validateUvCooldown(project.rootPath, workingDirectory);
+        return reason === undefined
+            ? undefined
+            : { reasons: [reason], relativePath: project.relativePath };
+    }));
+    return violations.filter((violation) => violation !== undefined);
+};
+
 const formatError$2 = (error) => error instanceof Error ? error.message : String(error);
 const resolveGitRoot = async (workingDirectory, commandExecutor) => {
     let stdout = "";
@@ -29745,6 +30003,17 @@ const main = async () => {
     if (selectedProjects.length === 0) {
         info("No discovered projects matched the current change set.");
         return;
+    }
+    const [nodeConfigViolations, pythonConfigViolations] = await Promise.all([
+        findNodeConfigViolations(selectedProjects, workingDirectory),
+        findPythonConfigViolations(selectedProjects, workingDirectory),
+    ]);
+    const configViolations = [...nodeConfigViolations, ...pythonConfigViolations];
+    if (configViolations.length > 0) {
+        const detail = configViolations
+            .map((violation) => `${violation.relativePath}: ${violation.reasons.join("; ")}`)
+            .join("\n");
+        throw new Error(`Project dependency configuration policy violations:\n${detail}`);
     }
     info(`Running checks for ${selectedProjects.length} project root(s).`);
     const runSummary = await runProjects(selectedProjects, runnerInputs);
