@@ -1,21 +1,28 @@
+---
 name: Release Please
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
-  release:
+  release-please:
     runs-on: ubuntu-latest
     steps:
-      - id: release
-        uses: googleapis/release-please-action@v4
+      - name: Generate a token
+        id: generate-token
+        uses: actions/create-github-app-token@v2.1.4
+        with:
+          app-id: ${{ vars.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+      - uses: googleapis/release-please-action@v4
+        id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          token: ${{ steps.generate-token.outputs.token }}
