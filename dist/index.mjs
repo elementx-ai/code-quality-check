@@ -29221,6 +29221,15 @@ const readFileIfExists = async (filePath) => {
         return undefined;
     }
 };
+const fileExists = async (filePath) => {
+    try {
+        await promises$1.access(filePath);
+        return true;
+    }
+    catch {
+        return false;
+    }
+};
 const readFileUpwards = async (startDir, boundaryDir, fileName) => {
     const candidates = ancestorChain(startDir, boundaryDir).map((directory) => path$1.join(directory, fileName));
     for (const candidate of candidates) {
@@ -29488,6 +29497,16 @@ const validatePoetryCooldown = async (rootPath, boundaryDirectory) => {
     return undefined;
 };
 const hasTable = (content, table) => tableBody(content, table) !== undefined;
+const buildBackendPattern = /^\s*build-backend\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))/m;
+const usesPoetryBuildBackend = (pyproject) => {
+    const buildSystem = tableBody(pyproject, "build-system");
+    if (buildSystem === undefined) {
+        return false;
+    }
+    const match = buildBackendPattern.exec(buildSystem);
+    const backend = (match?.[1] ?? match?.[2] ?? match?.[3])?.trim();
+    return backend === "poetry.core.masonry.api";
+};
 const detectPackageManagers = async (rootPath, boundaryDirectory) => {
     const directories = ancestorChain(rootPath, boundaryDirectory);
     const managers = new Set();
@@ -29497,7 +29516,8 @@ const detectPackageManagers = async (rootPath, boundaryDirectory) => {
             if (hasTable(pyproject, "tool.uv")) {
                 managers.add("uv");
             }
-            if (hasTable(pyproject, "tool.poetry") || /poetry-core/.test(pyproject)) {
+            if (hasTable(pyproject, "tool.poetry") ||
+                usesPoetryBuildBackend(pyproject)) {
                 managers.add("poetry");
             }
         }
@@ -29508,7 +29528,7 @@ const detectPackageManagers = async (rootPath, boundaryDirectory) => {
             ["poetry.lock", "poetry"],
         ];
         for (const [fileName, manager] of sidecars) {
-            if ((await readFileIfExists(path$1.join(directory, fileName))) !== undefined) {
+            if (await fileExists(path$1.join(directory, fileName))) {
                 managers.add(manager);
             }
         }

@@ -4,6 +4,7 @@ import {
   ConfigViolation,
   MIN_DEPENDENCY_AGE_DAYS,
   ancestorChain,
+  fileExists,
   readFileIfExists,
 } from "./config-files.js";
 
@@ -298,6 +299,20 @@ const validatePoetryCooldown = async (
 const hasTable = (content: string, table: string): boolean =>
   tableBody(content, table) !== undefined;
 
+const buildBackendPattern =
+  /^\s*build-backend\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))/m;
+
+const usesPoetryBuildBackend = (pyproject: string): boolean => {
+  const buildSystem = tableBody(pyproject, "build-system");
+  if (buildSystem === undefined) {
+    return false;
+  }
+
+  const match = buildBackendPattern.exec(buildSystem);
+  const backend = (match?.[1] ?? match?.[2] ?? match?.[3])?.trim();
+  return backend === "poetry.core.masonry.api";
+};
+
 type PackageManager = "uv" | "poetry";
 
 const detectPackageManagers = async (
@@ -315,7 +330,10 @@ const detectPackageManagers = async (
       if (hasTable(pyproject, "tool.uv")) {
         managers.add("uv");
       }
-      if (hasTable(pyproject, "tool.poetry") || /poetry-core/.test(pyproject)) {
+      if (
+        hasTable(pyproject, "tool.poetry") ||
+        usesPoetryBuildBackend(pyproject)
+      ) {
         managers.add("poetry");
       }
     }
@@ -327,9 +345,7 @@ const detectPackageManagers = async (
       ["poetry.lock", "poetry"],
     ];
     for (const [fileName, manager] of sidecars) {
-      if (
-        (await readFileIfExists(path.join(directory, fileName))) !== undefined
-      ) {
+      if (await fileExists(path.join(directory, fileName))) {
         managers.add(manager);
       }
     }
