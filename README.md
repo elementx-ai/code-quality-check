@@ -53,10 +53,12 @@ Python checks only run when the action detects Ruff usage in `pyproject.toml`. O
 
 Python configuration enforcement:
 
-- every Python project must configure a uv [dependency cooldown](https://docs.astral.sh/uv/concepts/resolution/#dependency-cooldowns) of at least `3` days by setting `exclude-newer` to a duration, which delays resolving newly published package versions as a supply-chain safeguard
-- the duration may be a friendly value (`"3 days"`, `"72 hours"`, `"1 week"`) or an ISO 8601 duration (`"P3D"`, `"PT72H"`); an absolute date is rejected because it is a fixed pin rather than a rolling cooldown
-- the setting is read from `[tool.uv]` in `pyproject.toml` or from `uv.toml`, resolved from the project directory upward to the repository root so a workspace root config covers every member
-- a missing, too-short, or unparseable cooldown fails the action, and the check honors `changed-only` the same way as the Node checks
+- every Python project must configure a dependency cooldown of at least `3` days, which delays resolving newly published package versions as a supply-chain safeguard. The required setting depends on the project's package manager, which the action detects from `pyproject.toml` (`[tool.uv]` / `[tool.poetry]` / `poetry-core` build backend) and from `uv.toml`, `uv.lock`, `poetry.toml`, or `poetry.lock`
+- uv projects set [`exclude-newer`](https://docs.astral.sh/uv/concepts/resolution/#dependency-cooldowns) to a duration under `[tool.uv]` in `pyproject.toml` or in `uv.toml`. The duration may be a friendly value (`"3 days"`, `"72 hours"`, `"1 week"`) or an ISO 8601 duration (`"P3D"`, `"PT72H"`); an absolute date is rejected because it is a fixed pin rather than a rolling cooldown
+- poetry projects set [`min-release-age`](https://python-poetry.org/docs/configuration/#solvermin-release-age) to an integer number of days under `[solver]` in `poetry.toml` (for example `poetry config --local solver.min-release-age 3`)
+- when a project uses both managers, configuring either cooldown satisfies the check
+- the setting is resolved from the project directory upward to the repository root so a workspace root config covers every member
+- a missing, too-short, or invalid cooldown fails the action, and the check honors `changed-only` the same way as the Node checks
 
 ## Usage
 

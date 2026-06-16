@@ -148,14 +148,14 @@ runs:
 
     - name: Setup Terraform
       if: ${{ inputs.auto-setup == 'true' && steps.detect.outputs.has_terraform == 'true' }}
-      uses: hashicorp/setup-terraform@v3
+      uses: hashicorp/setup-terraform@v4
       with:
         terraform_version: ${{ inputs.terraform-version }}
         terraform_wrapper: false
 
     - name: Setup TFLint
       if: ${{ inputs.auto-setup == 'true' && steps.detect.outputs.has_terraform == 'true' }}
-      uses: terraform-linters/setup-tflint@v4
+      uses: terraform-linters/setup-tflint@v6
       with:
         tflint_version: ${{ inputs.tflint-version }}
 
