@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { detectRepoMode, discoverProjects } from "./discovery.js";
 import { execCommand } from "./helpers/exec.js";
+import { resolveGitRoot } from "./helpers/git-changes.js";
 import { findNodeConfigViolations } from "./helpers/node-config.js";
 import { findPythonConfigViolations } from "./helpers/python-config.js";
 import { resolveReleasePleaseMetadataOnlyPrChangedFiles } from "./helpers/release-please.js";
@@ -167,9 +168,13 @@ const main = async (): Promise<void> => {
     return;
   }
 
+  const configBoundary = await resolveGitRoot(
+    workingDirectory,
+    execCommand,
+  ).catch(() => workingDirectory);
   const [nodeConfigViolations, pythonConfigViolations] = await Promise.all([
-    findNodeConfigViolations(selectedProjects, workingDirectory),
-    findPythonConfigViolations(selectedProjects, workingDirectory),
+    findNodeConfigViolations(selectedProjects, configBoundary),
+    findPythonConfigViolations(selectedProjects, configBoundary),
   ]);
   const configViolations = [...nodeConfigViolations, ...pythonConfigViolations];
   if (configViolations.length > 0) {

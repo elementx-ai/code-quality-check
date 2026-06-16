@@ -30,9 +30,9 @@ const parseMinReleaseAge = (content: string): string | undefined =>
 
 const validateNvmrc = async (
   rootPath: string,
-  workingDirectory: string,
+  boundaryDirectory: string,
 ): Promise<string | undefined> => {
-  const resolved = await readFileUpwards(rootPath, workingDirectory, ".nvmrc");
+  const resolved = await readFileUpwards(rootPath, boundaryDirectory, ".nvmrc");
   if (!resolved) {
     return `missing a .nvmrc file pinning the Node version (for example "24")`;
   }
@@ -47,9 +47,9 @@ const validateNvmrc = async (
 
 const validateNpmrc = async (
   rootPath: string,
-  workingDirectory: string,
+  boundaryDirectory: string,
 ): Promise<string | undefined> => {
-  const resolved = await readFileUpwards(rootPath, workingDirectory, ".npmrc");
+  const resolved = await readFileUpwards(rootPath, boundaryDirectory, ".npmrc");
   if (!resolved) {
     return `missing a .npmrc file with "min-release-age=${MIN_DEPENDENCY_AGE_DAYS}" (requires npm v11.10+)`;
   }
@@ -76,7 +76,7 @@ const projectHasNodeTarget = (project: Project): boolean =>
 
 export const findNodeConfigViolations = async (
   projects: Project[],
-  workingDirectory: string,
+  boundaryDirectory: string,
 ): Promise<ConfigViolation[]> => {
   const nodeProjects = projects.filter(projectHasNodeTarget);
 
@@ -84,8 +84,8 @@ export const findNodeConfigViolations = async (
     nodeProjects.map(async (project) => {
       const reasons = (
         await Promise.all([
-          validateNvmrc(project.rootPath, workingDirectory),
-          validateNpmrc(project.rootPath, workingDirectory),
+          validateNvmrc(project.rootPath, boundaryDirectory),
+          validateNpmrc(project.rootPath, boundaryDirectory),
         ])
       ).filter((reason): reason is string => reason !== undefined);
 

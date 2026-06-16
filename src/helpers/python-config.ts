@@ -108,6 +108,9 @@ const parseFriendlyDuration = (value: string): number | undefined => {
 const durationToSeconds = (value: string): number | undefined =>
   /^P/i.test(value) ? parseIsoDuration(value) : parseFriendlyDuration(value);
 
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 const tableBody = (
   content: string,
   table: string | null,
@@ -123,7 +126,7 @@ const tableBody = (
   }
 
   const headerPattern = new RegExp(
-    `^\\s*\\[${table.replace(/\./g, "\\.")}\\]\\s*(#.*)?$`,
+    `^\\s*\\[${escapeRegExp(table)}\\]\\s*(#.*)?$`,
   );
   const startIndex = lines.findIndex((line) => headerPattern.test(line));
   if (startIndex === -1) {
@@ -160,9 +163,9 @@ interface ResolvedSetting {
 
 const resolveExcludeNewer = async (
   rootPath: string,
-  workingDirectory: string,
+  boundaryDirectory: string,
 ): Promise<ResolvedSetting | undefined> => {
-  const directories = ancestorChain(rootPath, workingDirectory);
+  const directories = ancestorChain(rootPath, boundaryDirectory);
 
   for (const directory of directories) {
     const uvToml = await readFileIfExists(path.join(directory, "uv.toml"));
@@ -173,7 +176,7 @@ const resolveExcludeNewer = async (
     if (fromUvToml !== undefined) {
       return {
         relativePath:
-          path.relative(workingDirectory, path.join(directory, "uv.toml")) ||
+          path.relative(boundaryDirectory, path.join(directory, "uv.toml")) ||
           "uv.toml",
         value: fromUvToml,
       };
@@ -190,7 +193,7 @@ const resolveExcludeNewer = async (
       return {
         relativePath:
           path.relative(
-            workingDirectory,
+            boundaryDirectory,
             path.join(directory, "pyproject.toml"),
           ) || "pyproject.toml",
         value: fromPyproject,
@@ -203,9 +206,9 @@ const resolveExcludeNewer = async (
 
 const validateUvCooldown = async (
   rootPath: string,
-  workingDirectory: string,
+  boundaryDirectory: string,
 ): Promise<string | undefined> => {
-  const resolved = await resolveExcludeNewer(rootPath, workingDirectory);
+  const resolved = await resolveExcludeNewer(rootPath, boundaryDirectory);
   if (!resolved) {
     return `missing a uv dependency cooldown: set "exclude-newer" to at least "${MIN_DEPENDENCY_AGE_DAYS} days" under [tool.uv] in pyproject.toml or in uv.toml`;
   }
@@ -231,7 +234,7 @@ const projectHasPythonTarget = (project: Project): boolean =>
 
 export const findPythonConfigViolations = async (
   projects: Project[],
-  workingDirectory: string,
+  boundaryDirectory: string,
 ): Promise<ConfigViolation[]> => {
   const pythonProjects = projects.filter(projectHasPythonTarget);
 
@@ -239,7 +242,7 @@ export const findPythonConfigViolations = async (
     pythonProjects.map(async (project) => {
       const reason = await validateUvCooldown(
         project.rootPath,
-        workingDirectory,
+        boundaryDirectory,
       );
       return reason === undefined
         ? undefined

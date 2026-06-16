@@ -43,9 +43,20 @@ test("passes when .nvmrc and .npmrc satisfy the policy", async () => {
   });
 });
 
-test("accepts lts aliases and v-prefixed versions in .nvmrc", async () => {
+test("accepts lts aliases in .nvmrc", async () => {
   await withTempDir(async (dir) => {
     await fs.writeFile(path.join(dir, ".nvmrc"), "lts/iron\n");
+    await fs.writeFile(path.join(dir, ".npmrc"), "min-release-age=7\n");
+
+    const violations = await findNodeConfigViolations([nodeProject(dir)], dir);
+
+    assert.deepEqual(violations, []);
+  });
+});
+
+test("accepts v-prefixed versions in .nvmrc", async () => {
+  await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, ".nvmrc"), "v24\n");
     await fs.writeFile(path.join(dir, ".npmrc"), "min-release-age=7\n");
 
     const violations = await findNodeConfigViolations([nodeProject(dir)], dir);
