@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.6.0...code-quality-check-v0.6.1) (2026-06-16)
+
+
+### Bug Fixes
+
+* Add support for poetry min-release-age ([#29](https://github.com/elementx-ai/code-quality-check/issues/29)) ([9d4d18c](https://github.com/elementx-ai/code-quality-check/commit/9d4d18c1bf94b74ff76a1024b711442d37557d30))
+
 ## [0.6.0](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.5.2...code-quality-check-v0.6.0) (2026-06-16)
 
 
