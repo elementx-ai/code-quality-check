@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.5.2...code-quality-check-v0.6.0) (2026-06-16)
+
+
+### Features
+
+* Add strict min-release-age requirements ([#27](https://github.com/elementx-ai/code-quality-check/issues/27)) ([98ba00f](https://github.com/elementx-ai/code-quality-check/commit/98ba00f62428cb0c8accd4fe3b5a81a3d11251dd))
+
 ## [0.5.2](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.5.1...code-quality-check-v0.5.2) (2026-04-10)
 
 
