@@ -190,6 +190,155 @@ test("resolves the cooldown from an ancestor uv.toml in a workspace", async () =
   });
 });
 
+const poetryPyproject = (extra = "") =>
+  `[tool.poetry]\nname = "demo"\nversion = "0.1.0"\n${extra}`;
+
+test("passes when a poetry project sets min-release-age at the minimum", async () => {
+  await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, "pyproject.toml"), poetryPyproject());
+    await fs.writeFile(
+      path.join(dir, "poetry.toml"),
+      `[solver]\nmin-release-age = ${MIN_DEPENDENCY_AGE_DAYS}\n`,
+    );
+
+    const violations = await findPythonConfigViolations(
+      [pythonProject(dir)],
+      dir,
+    );
+
+    assert.deepEqual(violations, []);
+  });
+});
+
+test("flags a poetry project missing min-release-age", async () => {
+  await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, "pyproject.toml"), poetryPyproject());
+    await fs.writeFile(path.join(dir, "poetry.lock"), "");
+
+    const violations = await findPythonConfigViolations(
+      [pythonProject(dir)],
+      dir,
+    );
+
+    assert.equal(violations.length, 1);
+    assert.ok(violations[0].reasons.some((r) => r.includes("min-release-age")));
+    assert.ok(violations[0].reasons.some((r) => r.includes("poetry.toml")));
+  });
+});
+
+test("flags a poetry min-release-age below the minimum", async () => {
+  await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, "pyproject.toml"), poetryPyproject());
+    await fs.writeFile(
+      path.join(dir, "poetry.toml"),
+      "[solver]\nmin-release-age = 1\n",
+    );
+
+    const violations = await findPythonConfigViolations(
+      [pythonProject(dir)],
+      dir,
+    );
+
+    assert.equal(violations.length, 1);
+    assert.ok(
+      violations[0].reasons.some((r) =>
+        r.includes(`minimum cooldown is ${MIN_DEPENDENCY_AGE_DAYS}`),
+      ),
+    );
+  });
+});
+
+test("flags a non-integer poetry min-release-age", async () => {
+  await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, "pyproject.toml"), poetryPyproject());
+    await fs.writeFile(
+      path.join(dir, "poetry.toml"),
+      '[solver]\nmin-release-age = "3 days"\n',
+    );
+
+    const violations = await findPythonConfigViolations(
+      [pythonProject(dir)],
+      dir,
+    );
+
+    assert.equal(violations.length, 1);
+    assert.ok(violations[0].reasons.some((r) => r.includes("invalid")));
+  });
+});
+
+test("detects poetry via poetry-core build backend", async () => {
+  await withTempDir(async (dir) => {
+    await fs.writeFile(
+      path.join(dir, "pyproject.toml"),
+      '[build-system]\nrequires = ["poetry-core>=2.0.0"]\nbuild-backend = "poetry.core.masonry.api"\n',
+    );
+
+    const violations = await findPythonConfigViolations(
+      [pythonProject(dir)],
+      dir,
+    );
+
+    assert.equal(violations.length, 1);
+    assert.ok(violations[0].reasons.some((r) => r.includes("min-release-age")));
+  });
+});
+
+test("resolves poetry min-release-age from an ancestor poetry.toml", async () => {
+  await withTempDir(async (dir) => {
+    await fs.writeFile(
+      path.join(dir, "poetry.toml"),
+      "[solver]\nmin-release-age = 7\n",
+    );
+    const packageDir = path.join(dir, "packages", "api");
+    await fs.mkdir(packageDir, { recursive: true });
+    await fs.writeFile(
+      path.join(packageDir, "pyproject.toml"),
+      poetryPyproject(),
+    );
+
+    const violations = await findPythonConfigViolations(
+      [pythonProject(packageDir, "packages/api")],
+      dir,
+    );
+
+    assert.deepEqual(violations, []);
+  });
+});
+
+test("accepts a uv cooldown when both managers are configured", async () => {
+  await withTempDir(async (dir) => {
+    await fs.writeFile(
+      path.join(dir, "pyproject.toml"),
+      poetryPyproject(`\n[tool.uv]\nexclude-newer = "1 week"\n`),
+    );
+
+    const violations = await findPythonConfigViolations(
+      [pythonProject(dir)],
+      dir,
+    );
+
+    assert.deepEqual(violations, []);
+  });
+});
+
+test("treats a [tool.poetry] pyproject without poetry.toml as poetry", async () => {
+  await withTempDir(async (dir) => {
+    await fs.writeFile(
+      path.join(dir, "pyproject.toml"),
+      '[tool.poetry]\nname = "demo"\nversion = "1.0.0"\n\n[build-system]\nrequires = ["poetry-core"]\nbuild-backend = "poetry.core.masonry.api"\n',
+    );
+
+    const violations = await findPythonConfigViolations(
+      [pythonProject(dir)],
+      dir,
+    );
+
+    assert.equal(violations.length, 1);
+    assert.ok(violations[0].reasons.some((r) => r.includes("min-release-age")));
+    assert.ok(violations[0].reasons.every((r) => !r.includes("exclude-newer")));
+  });
+});
+
 test("ignores non-Python projects", async () => {
   await withTempDir(async (dir) => {
     const violations = await findPythonConfigViolations(

@@ -29446,11 +29446,95 @@ const validateUvCooldown = async (rootPath, boundaryDirectory) => {
     }
     return undefined;
 };
+const minReleaseAgePattern = /^\s*min-release-age\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))/m;
+const readMinReleaseAge = (body) => {
+    if (body === undefined) {
+        return undefined;
+    }
+    const match = minReleaseAgePattern.exec(body);
+    if (!match) {
+        return undefined;
+    }
+    return (match[1] ?? match[2] ?? match[3])?.trim();
+};
+const resolveMinReleaseAge = async (rootPath, boundaryDirectory) => {
+    const directories = ancestorChain(rootPath, boundaryDirectory);
+    for (const directory of directories) {
+        const poetryToml = await readFileIfExists(path$1.join(directory, "poetry.toml"));
+        const fromPoetryToml = poetryToml === undefined
+            ? undefined
+            : readMinReleaseAge(tableBody(poetryToml, "solver"));
+        if (fromPoetryToml !== undefined) {
+            return {
+                relativePath: path$1.relative(boundaryDirectory, path$1.join(directory, "poetry.toml")) || "poetry.toml",
+                value: fromPoetryToml,
+            };
+        }
+    }
+    return undefined;
+};
+const validatePoetryCooldown = async (rootPath, boundaryDirectory) => {
+    const resolved = await resolveMinReleaseAge(rootPath, boundaryDirectory);
+    if (!resolved) {
+        return `missing a poetry dependency cooldown: set "min-release-age" to at least ${MIN_DEPENDENCY_AGE_DAYS} under [solver] in poetry.toml (poetry config --local solver.min-release-age ${MIN_DEPENDENCY_AGE_DAYS})`;
+    }
+    if (!/^\d+$/.test(resolved.value)) {
+        return `${resolved.relativePath} has an invalid "min-release-age": "${resolved.value}"; set an integer number of days`;
+    }
+    const days = Number.parseInt(resolved.value, 10);
+    if (days < MIN_DEPENDENCY_AGE_DAYS) {
+        return `${resolved.relativePath} sets "min-release-age=${resolved.value}" but the minimum cooldown is ${MIN_DEPENDENCY_AGE_DAYS} days`;
+    }
+    return undefined;
+};
+const hasTable = (content, table) => tableBody(content, table) !== undefined;
+const detectPackageManagers = async (rootPath, boundaryDirectory) => {
+    const directories = ancestorChain(rootPath, boundaryDirectory);
+    const managers = new Set();
+    for (const directory of directories) {
+        const pyproject = await readFileIfExists(path$1.join(directory, "pyproject.toml"));
+        if (pyproject !== undefined) {
+            if (hasTable(pyproject, "tool.uv")) {
+                managers.add("uv");
+            }
+            if (hasTable(pyproject, "tool.poetry") || /poetry-core/.test(pyproject)) {
+                managers.add("poetry");
+            }
+        }
+        const sidecars = [
+            ["uv.toml", "uv"],
+            ["uv.lock", "uv"],
+            ["poetry.toml", "poetry"],
+            ["poetry.lock", "poetry"],
+        ];
+        for (const [fileName, manager] of sidecars) {
+            if ((await readFileIfExists(path$1.join(directory, fileName))) !== undefined) {
+                managers.add(manager);
+            }
+        }
+    }
+    return managers;
+};
+const validateCooldown = async (rootPath, boundaryDirectory) => {
+    const managers = await detectPackageManagers(rootPath, boundaryDirectory);
+    if (managers.has("poetry") && !managers.has("uv")) {
+        return validatePoetryCooldown(rootPath, boundaryDirectory);
+    }
+    if (managers.has("poetry") && managers.has("uv")) {
+        const uvReason = await validateUvCooldown(rootPath, boundaryDirectory);
+        if (uvReason === undefined) {
+            return undefined;
+        }
+        const poetryReason = await validatePoetryCooldown(rootPath, boundaryDirectory);
+        return poetryReason === undefined ? undefined : uvReason;
+    }
+    return validateUvCooldown(rootPath, boundaryDirectory);
+};
 const projectHasPythonTarget = (project) => project.targets.some((target) => target.ecosystem === "python");
 const findPythonConfigViolations = async (projects, boundaryDirectory) => {
     const pythonProjects = projects.filter(projectHasPythonTarget);
     const violations = await Promise.all(pythonProjects.map(async (project) => {
-        const reason = await validateUvCooldown(project.rootPath, boundaryDirectory);
+        const reason = await validateCooldown(project.rootPath, boundaryDirectory);
         return reason === undefined
             ? undefined
             : { reasons: [reason], relativePath: project.relativePath };
