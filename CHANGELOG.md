@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.4](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.6.3...code-quality-check-v0.6.4) (2026-06-19)
+
+
+### Bug Fixes
+
+* Enforce node 22, python 3.13 minimums, warn below node 24, python 3.14 ([#35](https://github.com/elementx-ai/code-quality-check/issues/35)) ([b15a776](https://github.com/elementx-ai/code-quality-check/commit/b15a7761fb070364baf63f89b92c2b06246bd9c1))
+
 ## [0.6.3](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.6.2...code-quality-check-v0.6.3) (2026-06-19)
 
 
