@@ -262,7 +262,7 @@ test("flags a top-level displayName in marketplace.json as ignored", async () =>
   });
 });
 
-test("passes a marketplace.json with a kebab top-level name and no top-level displayName", async () => {
+test("passes a marketplace.json with a kebab-case top-level name and no top-level displayName", async () => {
   await withTempDir(async (dir) => {
     await writeMarketplaceManifest(dir, {
       name: "elementx",
