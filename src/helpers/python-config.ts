@@ -1,17 +1,56 @@
 import path from "node:path";
 
 import {
-  ConfigViolation,
+  CheckFinding,
+  ConfigCheckResult,
   MIN_DEPENDENCY_AGE_DAYS,
   ancestorChain,
+  collectFindings,
   fileExists,
+  firstNonEmptyLine,
   readFileIfExists,
+  readFileUpwards,
 } from "./config-files.js";
 
 import { Project } from "../types.js";
 
 const SECONDS_PER_DAY = 86400;
 const MIN_COOLDOWN_SECONDS = MIN_DEPENDENCY_AGE_DAYS * SECONDS_PER_DAY;
+
+export const MIN_PYTHON_VERSION = "3.13";
+export const RECOMMENDED_PYTHON_VERSION = "3.14";
+
+const minPythonRank = 3 * 1000 + 13;
+const recommendedPythonRank = 3 * 1000 + 14;
+
+const pythonVersionPattern = /^(\d+)\.(\d+)(?:\.\d+)?$/;
+const requiresPythonLowerBoundPattern = /(>=|~=|==|>)\s*(\d+)\.(\d+)/;
+
+const versionRank = (major: number, minor: number): number =>
+  major * 1000 + minor;
+
+const classifyPythonVersion = (
+  major: number,
+  minor: number,
+  subject: string,
+): CheckFinding | undefined => {
+  const rank = versionRank(major, minor);
+  if (rank < minPythonRank) {
+    return {
+      severity: "error",
+      reason: `${subject} but the minimum is ${MIN_PYTHON_VERSION}`,
+    };
+  }
+
+  if (rank < recommendedPythonRank) {
+    return {
+      severity: "warning",
+      reason: `${subject}; the recommended minimum is ${RECOMMENDED_PYTHON_VERSION}`,
+    };
+  }
+
+  return undefined;
+};
 
 const unitSeconds: Record<string, number> = {
   s: 1,
@@ -379,28 +418,125 @@ const validateCooldown = async (
   return validateUvCooldown(rootPath, boundaryDirectory);
 };
 
+const validatePythonVersionFile = async (
+  rootPath: string,
+  boundaryDirectory: string,
+): Promise<CheckFinding | undefined> => {
+  const resolved = await readFileUpwards(
+    rootPath,
+    boundaryDirectory,
+    ".python-version",
+  );
+  if (!resolved) {
+    return {
+      severity: "error",
+      reason: `missing a .python-version file pinning the Python version to at least ${MIN_PYTHON_VERSION} (for example "${RECOMMENDED_PYTHON_VERSION}")`,
+    };
+  }
+
+  const version = firstNonEmptyLine(resolved.content);
+  const match = pythonVersionPattern.exec(version);
+  if (!match) {
+    return {
+      severity: "error",
+      reason: `${resolved.relativePath} must pin a numeric Python version of at least ${MIN_PYTHON_VERSION} (aliases such as "pypy3.10" are not allowed), found: "${version || "<empty>"}"`,
+    };
+  }
+
+  return classifyPythonVersion(
+    Number.parseInt(match[1], 10),
+    Number.parseInt(match[2], 10),
+    `${resolved.relativePath} pins Python ${version}`,
+  );
+};
+
+const requiresPythonPattern =
+  /^\s*requires-python\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))/m;
+
+const readRequiresPython = (body: string | undefined): string | undefined => {
+  if (body === undefined) {
+    return undefined;
+  }
+
+  const match = requiresPythonPattern.exec(body);
+  if (!match) {
+    return undefined;
+  }
+
+  return (match[1] ?? match[2] ?? match[3])?.trim();
+};
+
+const validateRequiresPython = async (
+  rootPath: string,
+  boundaryDirectory: string,
+): Promise<CheckFinding | undefined> => {
+  const directories = ancestorChain(rootPath, boundaryDirectory);
+
+  for (const directory of directories) {
+    const pyproject = await readFileIfExists(
+      path.join(directory, "pyproject.toml"),
+    );
+    if (pyproject === undefined) {
+      continue;
+    }
+
+    const value = readRequiresPython(tableBody(pyproject, "project"));
+    if (value === undefined) {
+      continue;
+    }
+
+    const relativePath =
+      path.relative(
+        boundaryDirectory,
+        path.join(directory, "pyproject.toml"),
+      ) || "pyproject.toml";
+    const match = requiresPythonLowerBoundPattern.exec(value);
+    if (!match) {
+      return {
+        severity: "error",
+        reason: `${relativePath} has an unparseable "requires-python": "${value}"`,
+      };
+    }
+
+    return classifyPythonVersion(
+      Number.parseInt(match[2], 10),
+      Number.parseInt(match[3], 10),
+      `${relativePath} sets requires-python "${value}"`,
+    );
+  }
+
+  return undefined;
+};
+
 const projectHasPythonTarget = (project: Project): boolean =>
   project.targets.some((target) => target.ecosystem === "python");
 
 export const findPythonConfigViolations = async (
   projects: Project[],
   boundaryDirectory: string,
-): Promise<ConfigViolation[]> => {
+): Promise<ConfigCheckResult> => {
   const pythonProjects = projects.filter(projectHasPythonTarget);
 
-  const violations = await Promise.all(
+  const entries = await Promise.all(
     pythonProjects.map(async (project) => {
-      const reason = await validateCooldown(
-        project.rootPath,
-        boundaryDirectory,
-      );
-      return reason === undefined
-        ? undefined
-        : { reasons: [reason], relativePath: project.relativePath };
+      const [cooldownReason, versionFileFinding, requiresPythonFinding] =
+        await Promise.all([
+          validateCooldown(project.rootPath, boundaryDirectory),
+          validatePythonVersionFile(project.rootPath, boundaryDirectory),
+          validateRequiresPython(project.rootPath, boundaryDirectory),
+        ]);
+
+      const findings = [
+        cooldownReason === undefined
+          ? undefined
+          : ({ severity: "error", reason: cooldownReason } as CheckFinding),
+        versionFileFinding,
+        requiresPythonFinding,
+      ].filter((finding): finding is CheckFinding => finding !== undefined);
+
+      return { relativePath: project.relativePath, findings };
     }),
   );
 
-  return violations.filter(
-    (violation): violation is ConfigViolation => violation !== undefined,
-  );
+  return collectFindings(entries);
 };

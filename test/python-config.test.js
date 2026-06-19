@@ -5,7 +5,11 @@ import path from "node:path";
 import test from "node:test";
 
 import { MIN_DEPENDENCY_AGE_DAYS } from "../src/helpers/config-files.js";
-import { findPythonConfigViolations } from "../src/helpers/python-config.js";
+import {
+  findPythonConfigViolations,
+  MIN_PYTHON_VERSION,
+  RECOMMENDED_PYTHON_VERSION,
+} from "../src/helpers/python-config.js";
 
 const withTempDir = async (run) => {
   const tempDirectory = await fs.mkdtemp(
@@ -30,30 +34,39 @@ const pythonProject = (rootPath, relativePath = ".") => ({
   ],
 });
 
+const writeVersionPin = (dir) =>
+  fs.writeFile(
+    path.join(dir, ".python-version"),
+    `${RECOMMENDED_PYTHON_VERSION}\n`,
+  );
+
 const pyprojectWith = (excludeNewer) =>
   `[project]\nname = "demo"\n\n[tool.uv]\nexclude-newer = "${excludeNewer}"\n`;
 
 test("passes with a friendly-duration cooldown at the minimum", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(
       path.join(dir, "pyproject.toml"),
       pyprojectWith(`${MIN_DEPENDENCY_AGE_DAYS} days`),
     );
 
-    const violations = await findPythonConfigViolations(
+    const { violations, warnings } = await findPythonConfigViolations(
       [pythonProject(dir)],
       dir,
     );
 
     assert.deepEqual(violations, []);
+    assert.deepEqual(warnings, []);
   });
 });
 
 test("passes with an ISO 8601 duration above the minimum", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(path.join(dir, "pyproject.toml"), pyprojectWith("P1W"));
 
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [pythonProject(dir)],
       dir,
     );
@@ -64,6 +77,7 @@ test("passes with an ISO 8601 duration above the minimum", async () => {
 
 test("passes when the cooldown is set in uv.toml", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(
       path.join(dir, "pyproject.toml"),
       '[project]\nname = "demo"\n',
@@ -73,7 +87,7 @@ test("passes when the cooldown is set in uv.toml", async () => {
       'exclude-newer = "72 hours"\n',
     );
 
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [pythonProject(dir)],
       dir,
     );
@@ -84,12 +98,13 @@ test("passes when the cooldown is set in uv.toml", async () => {
 
 test("flags a missing cooldown", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(
       path.join(dir, "pyproject.toml"),
       '[project]\nname = "demo"\n',
     );
 
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [pythonProject(dir)],
       dir,
     );
@@ -101,12 +116,13 @@ test("flags a missing cooldown", async () => {
 
 test("flags a cooldown below the minimum", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(
       path.join(dir, "pyproject.toml"),
       pyprojectWith("2 days"),
     );
 
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [pythonProject(dir)],
       dir,
     );
@@ -122,12 +138,13 @@ test("flags a cooldown below the minimum", async () => {
 
 test("flags an absolute exclude-newer date as not a rolling cooldown", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(
       path.join(dir, "pyproject.toml"),
       pyprojectWith("2024-01-01"),
     );
 
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [pythonProject(dir)],
       dir,
     );
@@ -139,12 +156,13 @@ test("flags an absolute exclude-newer date as not a rolling cooldown", async () 
 
 test("flags an unparseable duration", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(
       path.join(dir, "pyproject.toml"),
       pyprojectWith("soon-ish"),
     );
 
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [pythonProject(dir)],
       dir,
     );
@@ -156,12 +174,13 @@ test("flags an unparseable duration", async () => {
 
 test("ignores exclude-newer outside the [tool.uv] table", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(
       path.join(dir, "pyproject.toml"),
       '[project]\nname = "demo"\n\n[tool.other]\nexclude-newer = "1 week"\n',
     );
 
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [pythonProject(dir)],
       dir,
     );
@@ -173,6 +192,7 @@ test("ignores exclude-newer outside the [tool.uv] table", async () => {
 
 test("resolves the cooldown from an ancestor uv.toml in a workspace", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(path.join(dir, "uv.toml"), 'exclude-newer = "1 week"\n');
     const packageDir = path.join(dir, "packages", "api");
     await fs.mkdir(packageDir, { recursive: true });
@@ -181,7 +201,7 @@ test("resolves the cooldown from an ancestor uv.toml in a workspace", async () =
       '[project]\nname = "api"\n',
     );
 
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [pythonProject(packageDir, "packages/api")],
       dir,
     );
@@ -195,13 +215,14 @@ const poetryPyproject = (extra = "") =>
 
 test("passes when a poetry project sets min-release-age at the minimum", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(path.join(dir, "pyproject.toml"), poetryPyproject());
     await fs.writeFile(
       path.join(dir, "poetry.toml"),
       `[solver]\nmin-release-age = ${MIN_DEPENDENCY_AGE_DAYS}\n`,
     );
 
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [pythonProject(dir)],
       dir,
     );
@@ -212,10 +233,11 @@ test("passes when a poetry project sets min-release-age at the minimum", async (
 
 test("flags a poetry project missing min-release-age", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(path.join(dir, "pyproject.toml"), poetryPyproject());
     await fs.writeFile(path.join(dir, "poetry.lock"), "");
 
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [pythonProject(dir)],
       dir,
     );
@@ -228,13 +250,14 @@ test("flags a poetry project missing min-release-age", async () => {
 
 test("flags a poetry min-release-age below the minimum", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(path.join(dir, "pyproject.toml"), poetryPyproject());
     await fs.writeFile(
       path.join(dir, "poetry.toml"),
       "[solver]\nmin-release-age = 1\n",
     );
 
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [pythonProject(dir)],
       dir,
     );
@@ -250,13 +273,14 @@ test("flags a poetry min-release-age below the minimum", async () => {
 
 test("flags a non-integer poetry min-release-age", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(path.join(dir, "pyproject.toml"), poetryPyproject());
     await fs.writeFile(
       path.join(dir, "poetry.toml"),
       '[solver]\nmin-release-age = "3 days"\n',
     );
 
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [pythonProject(dir)],
       dir,
     );
@@ -268,12 +292,13 @@ test("flags a non-integer poetry min-release-age", async () => {
 
 test("detects poetry via poetry-core build backend", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(
       path.join(dir, "pyproject.toml"),
       '[build-system]\nrequires = ["poetry-core>=2.0.0"]\nbuild-backend = "poetry.core.masonry.api"\n',
     );
 
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [pythonProject(dir)],
       dir,
     );
@@ -285,6 +310,7 @@ test("detects poetry via poetry-core build backend", async () => {
 
 test("resolves poetry min-release-age from an ancestor poetry.toml", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(
       path.join(dir, "poetry.toml"),
       "[solver]\nmin-release-age = 7\n",
@@ -296,7 +322,7 @@ test("resolves poetry min-release-age from an ancestor poetry.toml", async () =>
       poetryPyproject(),
     );
 
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [pythonProject(packageDir, "packages/api")],
       dir,
     );
@@ -307,12 +333,13 @@ test("resolves poetry min-release-age from an ancestor poetry.toml", async () =>
 
 test("accepts a uv cooldown when both managers are configured", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(
       path.join(dir, "pyproject.toml"),
       poetryPyproject(`\n[tool.uv]\nexclude-newer = "1 week"\n`),
     );
 
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [pythonProject(dir)],
       dir,
     );
@@ -323,12 +350,13 @@ test("accepts a uv cooldown when both managers are configured", async () => {
 
 test("treats a [tool.poetry] pyproject without poetry.toml as poetry", async () => {
   await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
     await fs.writeFile(
       path.join(dir, "pyproject.toml"),
       '[tool.poetry]\nname = "demo"\nversion = "1.0.0"\n\n[build-system]\nrequires = ["poetry-core"]\nbuild-backend = "poetry.core.masonry.api"\n',
     );
 
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [pythonProject(dir)],
       dir,
     );
@@ -339,9 +367,155 @@ test("treats a [tool.poetry] pyproject without poetry.toml as poetry", async () 
   });
 });
 
+test("flags a missing .python-version", async () => {
+  await withTempDir(async (dir) => {
+    await fs.writeFile(
+      path.join(dir, "pyproject.toml"),
+      pyprojectWith("1 week"),
+    );
+
+    const { violations } = await findPythonConfigViolations(
+      [pythonProject(dir)],
+      dir,
+    );
+
+    assert.equal(violations.length, 1);
+    assert.ok(violations[0].reasons.some((r) => r.includes(".python-version")));
+  });
+});
+
+test("flags a .python-version below the minimum", async () => {
+  await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, ".python-version"), "3.12\n");
+    await fs.writeFile(
+      path.join(dir, "pyproject.toml"),
+      pyprojectWith("1 week"),
+    );
+
+    const { violations } = await findPythonConfigViolations(
+      [pythonProject(dir)],
+      dir,
+    );
+
+    assert.equal(violations.length, 1);
+    assert.ok(
+      violations[0].reasons.some((r) =>
+        r.includes(`minimum is ${MIN_PYTHON_VERSION}`),
+      ),
+    );
+  });
+});
+
+test("rejects a non-numeric .python-version", async () => {
+  await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, ".python-version"), "pypy3.10\n");
+    await fs.writeFile(
+      path.join(dir, "pyproject.toml"),
+      pyprojectWith("1 week"),
+    );
+
+    const { violations } = await findPythonConfigViolations(
+      [pythonProject(dir)],
+      dir,
+    );
+
+    assert.equal(violations.length, 1);
+    assert.ok(
+      violations[0].reasons.some((r) => r.includes("numeric Python version")),
+    );
+  });
+});
+
+test("warns when .python-version is at the minimum but below the recommended", async () => {
+  await withTempDir(async (dir) => {
+    await fs.writeFile(
+      path.join(dir, ".python-version"),
+      `${MIN_PYTHON_VERSION}\n`,
+    );
+    await fs.writeFile(
+      path.join(dir, "pyproject.toml"),
+      pyprojectWith("1 week"),
+    );
+
+    const { violations, warnings } = await findPythonConfigViolations(
+      [pythonProject(dir)],
+      dir,
+    );
+
+    assert.deepEqual(violations, []);
+    assert.equal(warnings.length, 1);
+    assert.ok(
+      warnings[0].reasons.some((r) =>
+        r.includes(`recommended minimum is ${RECOMMENDED_PYTHON_VERSION}`),
+      ),
+    );
+  });
+});
+
+test("accepts a patch-level .python-version above the recommended", async () => {
+  await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, ".python-version"), "3.14.1\n");
+    await fs.writeFile(
+      path.join(dir, "pyproject.toml"),
+      pyprojectWith("1 week"),
+    );
+
+    const { violations, warnings } = await findPythonConfigViolations(
+      [pythonProject(dir)],
+      dir,
+    );
+
+    assert.deepEqual(violations, []);
+    assert.deepEqual(warnings, []);
+  });
+});
+
+test("flags requires-python below the minimum", async () => {
+  await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
+    await fs.writeFile(
+      path.join(dir, "pyproject.toml"),
+      '[project]\nname = "demo"\nrequires-python = ">=3.11"\n\n[tool.uv]\nexclude-newer = "1 week"\n',
+    );
+
+    const { violations } = await findPythonConfigViolations(
+      [pythonProject(dir)],
+      dir,
+    );
+
+    assert.equal(violations.length, 1);
+    assert.ok(
+      violations[0].reasons.some(
+        (r) =>
+          r.includes("requires-python") &&
+          r.includes(`minimum is ${MIN_PYTHON_VERSION}`),
+      ),
+    );
+  });
+});
+
+test("warns when requires-python floor is at the minimum but below the recommended", async () => {
+  await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
+    await fs.writeFile(
+      path.join(dir, "pyproject.toml"),
+      `[project]\nname = "demo"\nrequires-python = ">=${MIN_PYTHON_VERSION}"\n\n[tool.uv]\nexclude-newer = "1 week"\n`,
+    );
+
+    const { violations, warnings } = await findPythonConfigViolations(
+      [pythonProject(dir)],
+      dir,
+    );
+
+    assert.deepEqual(violations, []);
+    assert.equal(warnings.length, 1);
+    assert.ok(warnings[0].reasons.some((r) => r.includes("requires-python")));
+  });
+});
+
 test("ignores non-Python projects", async () => {
   await withTempDir(async (dir) => {
-    const violations = await findPythonConfigViolations(
+    const { violations } = await findPythonConfigViolations(
       [
         {
           rootPath: dir,

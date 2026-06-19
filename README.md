@@ -38,7 +38,8 @@ Format-script enforcement:
 
 Node configuration enforcement:
 
-- every Node project must have a `.nvmrc` pinning a numeric Node version of at least `24` (for example `24`, `v24`, or `24.1.0`); nvm aliases such as `lts/*`, `lts/jod`, `node`, or `stable` are rejected because they cannot be statically guaranteed to meet the minimum
+- every Node project must have a `.nvmrc` pinning a numeric Node version of at least `22` (for example `22`, `v24`, or `24.1.0`); nvm aliases such as `lts/*`, `lts/jod`, `node`, or `stable` are rejected because they cannot be statically guaranteed to meet the minimum
+- a Node version of `22` or `23` is allowed but emits a warning: the recommended minimum is `24`
 - every Node project must have a `.npmrc` setting `min-release-age` to at least `3` (days), which delays installing newly published package versions as a supply-chain safeguard (requires npm v11.10+)
 - both files are resolved from the project directory upward to the repository root, so a single root `.nvmrc` and `.npmrc` cover every package in a monorepo
 - a missing or invalid `.nvmrc` or `.npmrc` fails the action
@@ -59,6 +60,10 @@ Python configuration enforcement:
 - when a project uses both managers, configuring either cooldown satisfies the check
 - the setting is resolved from the project directory upward to the repository root so a workspace root config covers every member
 - a missing, too-short, or invalid cooldown fails the action, and the check honors `changed-only` the same way as the Node checks
+- every Python project must have a `.python-version` pinning a numeric Python version of at least `3.13` (for example `3.14` or `3.14.1`); aliases such as `pypy3.10` are rejected because they cannot be statically guaranteed to meet the minimum. A missing or invalid `.python-version` fails the action
+- a Python version of `3.13` is allowed but emits a warning: the recommended minimum is `3.14`
+- when `requires-python` is present in `[project]` of `pyproject.toml`, its lower bound is validated the same way: a floor below `3.13` fails the action and a floor of `3.13` emits a warning
+- the `.python-version` file is resolved from the project directory upward to the repository root, so a single root pin covers every package in a monorepo
 
 Claude plugin naming enforcement:
 
@@ -142,7 +147,7 @@ Useful inputs:
 - `project-depth`: default `-1`
 - `node-version`: default `24`
 - `node-install-command`: default `npm ci`
-- `python-version`: default `3.12`
+- `python-version`: default `3.14`
 - `uv-version`: optional
 - `changed-only`: default `true`
 - `base-ref`: optional

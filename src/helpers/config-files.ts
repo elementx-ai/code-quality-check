@@ -8,10 +8,47 @@ export interface ConfigViolation {
   relativePath: string;
 }
 
+export interface ConfigCheckResult {
+  violations: ConfigViolation[];
+  warnings: ConfigViolation[];
+}
+
+export type CheckSeverity = "error" | "warning";
+
+export interface CheckFinding {
+  severity: CheckSeverity;
+  reason: string;
+}
+
 export interface ResolvedConfigFile {
   content: string;
   relativePath: string;
 }
+
+export const firstNonEmptyLine = (content: string): string =>
+  content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0) ?? "";
+
+export const collectFindings = (
+  entries: Array<{ relativePath: string; findings: CheckFinding[] }>,
+): ConfigCheckResult => {
+  const bySeverity = (severity: CheckSeverity): ConfigViolation[] =>
+    entries
+      .map(({ relativePath, findings }) => ({
+        relativePath,
+        reasons: findings
+          .filter((finding) => finding.severity === severity)
+          .map((finding) => finding.reason),
+      }))
+      .filter((entry) => entry.reasons.length > 0);
+
+  return {
+    violations: bySeverity("error"),
+    warnings: bySeverity("warning"),
+  };
+};
 
 export const ancestorChain = (
   startDir: string,

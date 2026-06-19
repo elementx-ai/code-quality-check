@@ -185,11 +185,19 @@ const main = async (): Promise<void> => {
     workingDirectory,
     execCommand,
   ).catch(() => workingDirectory);
-  const [nodeConfigViolations, pythonConfigViolations] = await Promise.all([
+  const [nodeConfig, pythonConfig] = await Promise.all([
     findNodeConfigViolations(selectedProjects, configBoundary),
     findPythonConfigViolations(selectedProjects, configBoundary),
   ]);
-  const configViolations = [...nodeConfigViolations, ...pythonConfigViolations];
+  const configWarnings = [...nodeConfig.warnings, ...pythonConfig.warnings];
+  for (const warning of configWarnings) {
+    core.warning(`${warning.relativePath}: ${warning.reasons.join("; ")}`);
+  }
+
+  const configViolations = [
+    ...nodeConfig.violations,
+    ...pythonConfig.violations,
+  ];
   if (configViolations.length > 0) {
     const detail = configViolations
       .map(

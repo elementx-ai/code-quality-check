@@ -8,6 +8,7 @@ import { MIN_DEPENDENCY_AGE_DAYS } from "../src/helpers/config-files.js";
 import {
   findNodeConfigViolations,
   MIN_NODE_MAJOR_VERSION,
+  RECOMMENDED_NODE_MAJOR_VERSION,
 } from "../src/helpers/node-config.js";
 
 const withTempDir = async (run) => {
@@ -37,12 +38,19 @@ const validNpmrc = `min-release-age=${MIN_DEPENDENCY_AGE_DAYS}\n`;
 
 test("passes when .nvmrc and .npmrc satisfy the policy", async () => {
   await withTempDir(async (dir) => {
-    await fs.writeFile(path.join(dir, ".nvmrc"), "24\n");
+    await fs.writeFile(
+      path.join(dir, ".nvmrc"),
+      `${RECOMMENDED_NODE_MAJOR_VERSION}\n`,
+    );
     await fs.writeFile(path.join(dir, ".npmrc"), validNpmrc);
 
-    const violations = await findNodeConfigViolations([nodeProject(dir)], dir);
+    const { violations, warnings } = await findNodeConfigViolations(
+      [nodeProject(dir)],
+      dir,
+    );
 
     assert.deepEqual(violations, []);
+    assert.deepEqual(warnings, []);
   });
 });
 
@@ -51,7 +59,10 @@ test("rejects nvm aliases in .nvmrc", async () => {
     await fs.writeFile(path.join(dir, ".nvmrc"), "lts/iron\n");
     await fs.writeFile(path.join(dir, ".npmrc"), "min-release-age=7\n");
 
-    const violations = await findNodeConfigViolations([nodeProject(dir)], dir);
+    const { violations } = await findNodeConfigViolations(
+      [nodeProject(dir)],
+      dir,
+    );
 
     assert.equal(violations.length, 1);
     assert.ok(
@@ -62,21 +73,34 @@ test("rejects nvm aliases in .nvmrc", async () => {
 
 test("accepts v-prefixed versions in .nvmrc", async () => {
   await withTempDir(async (dir) => {
-    await fs.writeFile(path.join(dir, ".nvmrc"), "v24\n");
+    await fs.writeFile(
+      path.join(dir, ".nvmrc"),
+      `v${RECOMMENDED_NODE_MAJOR_VERSION}\n`,
+    );
     await fs.writeFile(path.join(dir, ".npmrc"), "min-release-age=7\n");
 
-    const violations = await findNodeConfigViolations([nodeProject(dir)], dir);
+    const { violations, warnings } = await findNodeConfigViolations(
+      [nodeProject(dir)],
+      dir,
+    );
 
     assert.deepEqual(violations, []);
+    assert.deepEqual(warnings, []);
   });
 });
 
 test("flags a Node version below the minimum", async () => {
   await withTempDir(async (dir) => {
-    await fs.writeFile(path.join(dir, ".nvmrc"), "22\n");
+    await fs.writeFile(
+      path.join(dir, ".nvmrc"),
+      `${MIN_NODE_MAJOR_VERSION - 1}\n`,
+    );
     await fs.writeFile(path.join(dir, ".npmrc"), validNpmrc);
 
-    const violations = await findNodeConfigViolations([nodeProject(dir)], dir);
+    const { violations } = await findNodeConfigViolations(
+      [nodeProject(dir)],
+      dir,
+    );
 
     assert.equal(violations.length, 1);
     assert.ok(
@@ -87,11 +111,34 @@ test("flags a Node version below the minimum", async () => {
   });
 });
 
+test("warns when the Node version is at the minimum but below the recommended", async () => {
+  await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, ".nvmrc"), `${MIN_NODE_MAJOR_VERSION}\n`);
+    await fs.writeFile(path.join(dir, ".npmrc"), validNpmrc);
+
+    const { violations, warnings } = await findNodeConfigViolations(
+      [nodeProject(dir)],
+      dir,
+    );
+
+    assert.deepEqual(violations, []);
+    assert.equal(warnings.length, 1);
+    assert.ok(
+      warnings[0].reasons.some((r) =>
+        r.includes(`recommended minimum is ${RECOMMENDED_NODE_MAJOR_VERSION}`),
+      ),
+    );
+  });
+});
+
 test("flags a missing .nvmrc", async () => {
   await withTempDir(async (dir) => {
     await fs.writeFile(path.join(dir, ".npmrc"), validNpmrc);
 
-    const violations = await findNodeConfigViolations([nodeProject(dir)], dir);
+    const { violations } = await findNodeConfigViolations(
+      [nodeProject(dir)],
+      dir,
+    );
 
     assert.equal(violations.length, 1);
     assert.ok(violations[0].reasons.some((r) => r.includes(".nvmrc")));
@@ -103,7 +150,10 @@ test("flags an empty or invalid .nvmrc version", async () => {
     await fs.writeFile(path.join(dir, ".nvmrc"), "not-a-version\n");
     await fs.writeFile(path.join(dir, ".npmrc"), validNpmrc);
 
-    const violations = await findNodeConfigViolations([nodeProject(dir)], dir);
+    const { violations } = await findNodeConfigViolations(
+      [nodeProject(dir)],
+      dir,
+    );
 
     assert.equal(violations.length, 1);
     assert.ok(
@@ -114,9 +164,15 @@ test("flags an empty or invalid .nvmrc version", async () => {
 
 test("flags a missing .npmrc", async () => {
   await withTempDir(async (dir) => {
-    await fs.writeFile(path.join(dir, ".nvmrc"), "24\n");
+    await fs.writeFile(
+      path.join(dir, ".nvmrc"),
+      `${RECOMMENDED_NODE_MAJOR_VERSION}\n`,
+    );
 
-    const violations = await findNodeConfigViolations([nodeProject(dir)], dir);
+    const { violations } = await findNodeConfigViolations(
+      [nodeProject(dir)],
+      dir,
+    );
 
     assert.equal(violations.length, 1);
     assert.ok(violations[0].reasons.some((r) => r.includes("min-release-age")));
@@ -125,10 +181,16 @@ test("flags a missing .npmrc", async () => {
 
 test("flags a missing min-release-age setting", async () => {
   await withTempDir(async (dir) => {
-    await fs.writeFile(path.join(dir, ".nvmrc"), "24\n");
+    await fs.writeFile(
+      path.join(dir, ".nvmrc"),
+      `${RECOMMENDED_NODE_MAJOR_VERSION}\n`,
+    );
     await fs.writeFile(path.join(dir, ".npmrc"), "save-exact=true\n");
 
-    const violations = await findNodeConfigViolations([nodeProject(dir)], dir);
+    const { violations } = await findNodeConfigViolations(
+      [nodeProject(dir)],
+      dir,
+    );
 
     assert.equal(violations.length, 1);
     assert.ok(violations[0].reasons.some((r) => r.includes("not present")));
@@ -137,10 +199,16 @@ test("flags a missing min-release-age setting", async () => {
 
 test("flags a min-release-age below the minimum", async () => {
   await withTempDir(async (dir) => {
-    await fs.writeFile(path.join(dir, ".nvmrc"), "24\n");
+    await fs.writeFile(
+      path.join(dir, ".nvmrc"),
+      `${RECOMMENDED_NODE_MAJOR_VERSION}\n`,
+    );
     await fs.writeFile(path.join(dir, ".npmrc"), "min-release-age=2\n");
 
-    const violations = await findNodeConfigViolations([nodeProject(dir)], dir);
+    const { violations } = await findNodeConfigViolations(
+      [nodeProject(dir)],
+      dir,
+    );
 
     assert.equal(violations.length, 1);
     assert.ok(
@@ -153,10 +221,16 @@ test("flags a min-release-age below the minimum", async () => {
 
 test("flags a non-integer min-release-age value", async () => {
   await withTempDir(async (dir) => {
-    await fs.writeFile(path.join(dir, ".nvmrc"), "24\n");
+    await fs.writeFile(
+      path.join(dir, ".nvmrc"),
+      `${RECOMMENDED_NODE_MAJOR_VERSION}\n`,
+    );
     await fs.writeFile(path.join(dir, ".npmrc"), "min-release-age=3days\n");
 
-    const violations = await findNodeConfigViolations([nodeProject(dir)], dir);
+    const { violations } = await findNodeConfigViolations(
+      [nodeProject(dir)],
+      dir,
+    );
 
     assert.equal(violations.length, 1);
     assert.ok(violations[0].reasons.some((r) => r.includes("invalid")));
@@ -165,12 +239,15 @@ test("flags a non-integer min-release-age value", async () => {
 
 test("resolves config files from an ancestor directory in a monorepo", async () => {
   await withTempDir(async (dir) => {
-    await fs.writeFile(path.join(dir, ".nvmrc"), "24\n");
+    await fs.writeFile(
+      path.join(dir, ".nvmrc"),
+      `${RECOMMENDED_NODE_MAJOR_VERSION}\n`,
+    );
     await fs.writeFile(path.join(dir, ".npmrc"), validNpmrc);
     const packageDir = path.join(dir, "packages", "app");
     await fs.mkdir(packageDir, { recursive: true });
 
-    const violations = await findNodeConfigViolations(
+    const { violations } = await findNodeConfigViolations(
       [nodeProject(packageDir, "packages/app")],
       dir,
     );
@@ -181,7 +258,7 @@ test("resolves config files from an ancestor directory in a monorepo", async () 
 
 test("ignores non-Node projects", async () => {
   await withTempDir(async (dir) => {
-    const violations = await findNodeConfigViolations(
+    const { violations } = await findNodeConfigViolations(
       [
         {
           rootPath: dir,
@@ -204,7 +281,10 @@ test("ignores non-Node projects", async () => {
 
 test("reports both missing files in a single violation entry", async () => {
   await withTempDir(async (dir) => {
-    const violations = await findNodeConfigViolations([nodeProject(dir)], dir);
+    const { violations } = await findNodeConfigViolations(
+      [nodeProject(dir)],
+      dir,
+    );
 
     assert.equal(violations.length, 1);
     assert.equal(violations[0].reasons.length, 2);
