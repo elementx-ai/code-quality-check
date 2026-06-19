@@ -38,7 +38,7 @@ Format-script enforcement:
 
 Node configuration enforcement:
 
-- every Node project must have a `.nvmrc` pinning the Node version (a numeric version such as `24`, a `v`-prefixed or partial version, or an nvm alias like `lts/*`)
+- every Node project must have a `.nvmrc` pinning a numeric Node version of at least `24` (for example `24`, `v24`, or `24.1.0`); nvm aliases such as `lts/*`, `lts/jod`, `node`, or `stable` are rejected because they cannot be statically guaranteed to meet the minimum
 - every Node project must have a `.npmrc` setting `min-release-age` to at least `3` (days), which delays installing newly published package versions as a supply-chain safeguard (requires npm v11.10+)
 - both files are resolved from the project directory upward to the repository root, so a single root `.nvmrc` and `.npmrc` cover every package in a monorepo
 - a missing or invalid `.nvmrc` or `.npmrc` fails the action
@@ -59,6 +59,14 @@ Python configuration enforcement:
 - when a project uses both managers, configuring either cooldown satisfies the check
 - the setting is resolved from the project directory upward to the repository root so a workspace root config covers every member
 - a missing, too-short, or invalid cooldown fails the action, and the check honors `changed-only` the same way as the Node checks
+
+Claude plugin naming enforcement:
+
+- every `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` found anywhere in the repository (excluding `node_modules`, `dist`, and other build directories) is validated for proper naming
+- each plugin must set a human-readable `displayName` in Title Case (for example `"Proposal Hub"`). Without it, the Claude Code `/plugin` picker, the marketplace listing, and the connector UI fall back to the kebab-case `name`. `displayName` requires Claude Code v2.1.143+
+- a `displayName` is rejected when it is missing or empty, contains an underscore, or is not Title Case (each word must start with a capital letter or digit; common lowercase connector words such as `of`, `the`, and `and` are allowed after the first word)
+- each plugin `name` (in `plugin.json` and every entry of `marketplace.json`'s `plugins` array) must be a kebab-case identifier (lowercase letters, digits, and hyphens), since it is the programmatic id used for installation and tool namespacing
+- this is a repository-wide policy gate: it runs regardless of project discovery or `changed-only`, so a non-compliant manifest fails the action
 
 ## Usage
 

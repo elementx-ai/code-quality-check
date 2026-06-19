@@ -3,6 +3,7 @@ import * as core from "@actions/core";
 import path from "node:path";
 
 import { detectRepoMode, discoverProjects } from "./discovery.js";
+import { findClaudePluginViolations } from "./helpers/claude-plugin.js";
 import { execCommand } from "./helpers/exec.js";
 import { resolveGitRoot } from "./helpers/git-changes.js";
 import { findNodeConfigViolations } from "./helpers/node-config.js";
@@ -87,6 +88,18 @@ const main = async (): Promise<void> => {
       `Terraform files must be placed at the repository root or in a directory named "tf" or "module". ` +
         `Found misplaced .tf file(s): ${misplacedTerraformFiles.join(", ")}`,
     );
+  }
+
+  const claudePluginViolations =
+    await findClaudePluginViolations(workingDirectory);
+  if (claudePluginViolations.length > 0) {
+    const detail = claudePluginViolations
+      .map(
+        (violation) =>
+          `${violation.relativePath}: ${violation.reasons.join("; ")}`,
+      )
+      .join("\n");
+    throw new Error(`Claude plugin naming policy violations:\n${detail}`);
   }
 
   const repoMode = detectRepoMode(projects);

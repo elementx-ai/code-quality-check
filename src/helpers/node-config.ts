@@ -6,11 +6,14 @@ import {
 
 import { Project } from "../types.js";
 
-const nodeVersionPattern = /^v?\d+(?:\.\d+){0,2}$/;
-const nodeAliasPattern = /^(?:node|stable|lts\/\*|lts\/[a-z0-9._-]+)$/i;
+export const MIN_NODE_MAJOR_VERSION = 24;
 
-const isValidNodeVersion = (value: string): boolean =>
-  nodeVersionPattern.test(value) || nodeAliasPattern.test(value);
+const nodeVersionPattern = /^v?(\d+)(?:\.\d+){0,2}$/;
+
+const parseNodeMajorVersion = (value: string): number | undefined => {
+  const match = nodeVersionPattern.exec(value);
+  return match ? Number.parseInt(match[1], 10) : undefined;
+};
 
 const firstNonEmptyLine = (content: string): string =>
   content
@@ -34,12 +37,17 @@ const validateNvmrc = async (
 ): Promise<string | undefined> => {
   const resolved = await readFileUpwards(rootPath, boundaryDirectory, ".nvmrc");
   if (!resolved) {
-    return `missing a .nvmrc file pinning the Node version (for example "24")`;
+    return `missing a .nvmrc file pinning the Node version to at least ${MIN_NODE_MAJOR_VERSION} (for example "${MIN_NODE_MAJOR_VERSION}")`;
   }
 
   const version = firstNonEmptyLine(resolved.content);
-  if (!isValidNodeVersion(version)) {
-    return `${resolved.relativePath} must contain a valid Node version, found: "${version || "<empty>"}"`;
+  const major = parseNodeMajorVersion(version);
+  if (major === undefined) {
+    return `${resolved.relativePath} must pin a numeric Node version of at least ${MIN_NODE_MAJOR_VERSION} (nvm aliases such as "lts/*" or "node" are not allowed), found: "${version || "<empty>"}"`;
+  }
+
+  if (major < MIN_NODE_MAJOR_VERSION) {
+    return `${resolved.relativePath} pins Node ${version} but the minimum is ${MIN_NODE_MAJOR_VERSION}`;
   }
 
   return undefined;

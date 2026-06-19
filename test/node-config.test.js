@@ -5,7 +5,10 @@ import path from "node:path";
 import test from "node:test";
 
 import { MIN_DEPENDENCY_AGE_DAYS } from "../src/helpers/config-files.js";
-import { findNodeConfigViolations } from "../src/helpers/node-config.js";
+import {
+  findNodeConfigViolations,
+  MIN_NODE_MAJOR_VERSION,
+} from "../src/helpers/node-config.js";
 
 const withTempDir = async (run) => {
   const tempDirectory = await fs.mkdtemp(
@@ -43,14 +46,17 @@ test("passes when .nvmrc and .npmrc satisfy the policy", async () => {
   });
 });
 
-test("accepts lts aliases in .nvmrc", async () => {
+test("rejects nvm aliases in .nvmrc", async () => {
   await withTempDir(async (dir) => {
     await fs.writeFile(path.join(dir, ".nvmrc"), "lts/iron\n");
     await fs.writeFile(path.join(dir, ".npmrc"), "min-release-age=7\n");
 
     const violations = await findNodeConfigViolations([nodeProject(dir)], dir);
 
-    assert.deepEqual(violations, []);
+    assert.equal(violations.length, 1);
+    assert.ok(
+      violations[0].reasons.some((r) => r.includes("numeric Node version")),
+    );
   });
 });
 
@@ -62,6 +68,22 @@ test("accepts v-prefixed versions in .nvmrc", async () => {
     const violations = await findNodeConfigViolations([nodeProject(dir)], dir);
 
     assert.deepEqual(violations, []);
+  });
+});
+
+test("flags a Node version below the minimum", async () => {
+  await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, ".nvmrc"), "22\n");
+    await fs.writeFile(path.join(dir, ".npmrc"), validNpmrc);
+
+    const violations = await findNodeConfigViolations([nodeProject(dir)], dir);
+
+    assert.equal(violations.length, 1);
+    assert.ok(
+      violations[0].reasons.some((r) =>
+        r.includes(`minimum is ${MIN_NODE_MAJOR_VERSION}`),
+      ),
+    );
   });
 });
 
@@ -85,7 +107,7 @@ test("flags an empty or invalid .nvmrc version", async () => {
 
     assert.equal(violations.length, 1);
     assert.ok(
-      violations[0].reasons.some((r) => r.includes("valid Node version")),
+      violations[0].reasons.some((r) => r.includes("numeric Node version")),
     );
   });
 });
