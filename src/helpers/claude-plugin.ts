@@ -51,6 +51,25 @@ interface PluginEntry {
   name?: unknown;
 }
 
+const validateMcpServerNames = (mcpServers: unknown): string[] => {
+  if (
+    typeof mcpServers !== "object" ||
+    mcpServers === null ||
+    Array.isArray(mcpServers)
+  ) {
+    return [];
+  }
+
+  return Object.keys(mcpServers)
+    .filter((serverName) => !kebabNamePattern.test(serverName))
+    .map(
+      (serverName) =>
+        `plugin.json "mcpServers" key must be a kebab-case identifier (lowercase letters, digits, and hyphens), ` +
+        `since it is shown verbatim as the connector name and prefixes the MCP tool namespace, ` +
+        `found: ${JSON.stringify(serverName)}`,
+    );
+};
+
 const isTitleCase = (value: string): boolean => {
   const words = value.trim().split(/\s+/);
   if (words.length === 0 || words[0] === "") {
@@ -119,14 +138,49 @@ const validatePluginManifest = async (
     return { reasons: ["is not valid JSON"], relativePath };
   }
 
-  const manifest = parsed as { displayName?: unknown; name?: unknown };
-  const reasons = validateEntry({
-    displayName: manifest.displayName,
-    label: "plugin.json",
-    name: manifest.name,
-  });
+  const manifest = parsed as {
+    displayName?: unknown;
+    mcpServers?: unknown;
+    name?: unknown;
+  };
+  const reasons = [
+    ...validateEntry({
+      displayName: manifest.displayName,
+      label: "plugin.json",
+      name: manifest.name,
+    }),
+    ...validateMcpServerNames(manifest.mcpServers),
+  ];
 
   return reasons.length > 0 ? { reasons, relativePath } : undefined;
+};
+
+const validateMarketplaceTopLevel = (marketplace: {
+  displayName?: unknown;
+  name?: unknown;
+}): string[] => {
+  const reasons: string[] = [];
+
+  if (
+    typeof marketplace.name !== "string" ||
+    !kebabNamePattern.test(marketplace.name)
+  ) {
+    reasons.push(
+      `marketplace.json top-level "name" must be a kebab-case identifier (lowercase letters, digits, and hyphens); ` +
+        `it is the public marketplace id users type in "/plugin install <plugin>@<marketplace>", ` +
+        `found: ${JSON.stringify(marketplace.name)}`,
+    );
+  }
+
+  if (marketplace.displayName !== undefined) {
+    reasons.push(
+      `marketplace.json has no top-level "displayName" field, so this one is silently ignored; ` +
+        `set a human-readable "displayName" on each entry of the "plugins" array instead, ` +
+        `found: ${JSON.stringify(marketplace.displayName)}`,
+    );
+  }
+
+  return reasons;
 };
 
 const validateMarketplaceManifest = async (
@@ -143,21 +197,34 @@ const validateMarketplaceManifest = async (
     return { reasons: ["is not valid JSON"], relativePath };
   }
 
-  const plugins = (parsed as { plugins?: unknown }).plugins;
+  const marketplace = parsed as {
+    displayName?: unknown;
+    name?: unknown;
+    plugins?: unknown;
+  };
+
+  const topLevelReasons = validateMarketplaceTopLevel(marketplace);
+
+  const plugins = marketplace.plugins;
   if (!Array.isArray(plugins)) {
-    return undefined;
+    return topLevelReasons.length > 0
+      ? { reasons: topLevelReasons, relativePath }
+      : undefined;
   }
 
-  const reasons = plugins.flatMap((plugin, index) => {
-    const entry = (plugin ?? {}) as { displayName?: unknown; name?: unknown };
-    const identifier =
-      typeof entry.name === "string" ? entry.name : `#${index}`;
-    return validateEntry({
-      displayName: entry.displayName,
-      label: `plugins[${identifier}]`,
-      name: entry.name,
-    });
-  });
+  const reasons = [
+    ...topLevelReasons,
+    ...plugins.flatMap((plugin, index) => {
+      const entry = (plugin ?? {}) as { displayName?: unknown; name?: unknown };
+      const identifier =
+        typeof entry.name === "string" ? entry.name : `#${index}`;
+      return validateEntry({
+        displayName: entry.displayName,
+        label: `plugins[${identifier}]`,
+        name: entry.name,
+      });
+    }),
+  ];
 
   return reasons.length > 0 ? { reasons, relativePath } : undefined;
 };

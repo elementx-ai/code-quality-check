@@ -66,6 +66,9 @@ Claude plugin naming enforcement:
 - each plugin must set a human-readable `displayName` in Title Case (for example `"Proposal Hub"`). Without it, the Claude Code `/plugin` picker, the marketplace listing, and the connector UI fall back to the kebab-case `name`. `displayName` requires Claude Code v2.1.143+
 - a `displayName` is rejected when it is missing or empty, contains an underscore, or is not Title Case (each word must start with a capital letter or digit; common lowercase connector words such as `of`, `the`, and `and` are allowed after the first word)
 - each plugin `name` (in `plugin.json` and every entry of `marketplace.json`'s `plugins` array) must be a kebab-case identifier (lowercase letters, digits, and hyphens), since it is the programmatic id used for installation and tool namespacing
+- each key under `plugin.json`'s `mcpServers` object must be a kebab-case identifier (lowercase letters, digits, and hyphens). MCP server entries have no display-name field, so the key is shown verbatim as the connector chip in the `/plugin` UI and also prefixes the MCP tool namespace (`mcp__<key>__<tool>`); a key with spaces, underscores, or capitals (for example `"Proposal Hub"`) produces an ugly connector label and tool ids
+- `marketplace.json`'s top-level `name` must be a kebab-case identifier: it is the public marketplace id users type in `/plugin install <plugin>@<marketplace>`
+- `marketplace.json` has no recognized top-level `displayName` field, so one set there is silently ignored by Claude Code. The check flags a top-level `displayName` and points you to set it on each `plugins` entry instead (a missing per-entry `displayName` falls back to the kebab-case `name`, not to the plugin's own `plugin.json`)
 - this is a repository-wide policy gate: it runs regardless of project discovery or `changed-only`, so a non-compliant manifest fails the action
 
 ## Usage
