@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.6.2...code-quality-check-v0.6.3) (2026-06-19)
+
+
+### Bug Fixes
+
+* Improve claude plugin naming checks ([#33](https://github.com/elementx-ai/code-quality-check/issues/33)) ([1aa563f](https://github.com/elementx-ai/code-quality-check/commit/1aa563fbb848162554efcac918453d2a01231761))
+
 ## [0.6.2](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.6.1...code-quality-check-v0.6.2) (2026-06-19)
 
 
