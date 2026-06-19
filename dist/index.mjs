@@ -29093,6 +29093,24 @@ const normalizeRelativePath = (from, to) => {
 };
 
 const MIN_DEPENDENCY_AGE_DAYS = 3;
+const firstNonEmptyLine = (content) => content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0) ?? "";
+const collectFindings = (entries) => {
+    const bySeverity = (severity) => entries
+        .map(({ relativePath, findings }) => ({
+        relativePath,
+        reasons: findings
+            .filter((finding) => finding.severity === severity)
+            .map((finding) => finding.reason),
+    }))
+        .filter((entry) => entry.reasons.length > 0);
+    return {
+        violations: bySeverity("error"),
+        warnings: bySeverity("warning"),
+    };
+};
 const ancestorChain = (startDir, boundaryDir) => {
     const boundary = path$1.resolve(boundaryDir);
     const start = path$1.resolve(startDir);
@@ -29428,16 +29446,14 @@ const resolveFirstParent = async (gitRoot, ref, commandExecutor) => {
     return firstParent.trim() || undefined;
 };
 
-const MIN_NODE_MAJOR_VERSION = 24;
+const MIN_NODE_MAJOR_VERSION = 22;
+const RECOMMENDED_NODE_MAJOR_VERSION = 24;
+const MIN_NPM_VERSION = "11.10";
 const nodeVersionPattern = /^v?(\d+)(?:\.\d+){0,2}$/;
 const parseNodeMajorVersion = (value) => {
     const match = nodeVersionPattern.exec(value);
     return match ? Number.parseInt(match[1], 10) : undefined;
 };
-const firstNonEmptyLine = (content) => content
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line.length > 0) ?? "";
 const parseMinReleaseAge = (content) => content
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -29449,53 +29465,106 @@ const parseMinReleaseAge = (content) => content
 const validateNvmrc = async (rootPath, boundaryDirectory) => {
     const resolved = await readFileUpwards(rootPath, boundaryDirectory, ".nvmrc");
     if (!resolved) {
-        return `missing a .nvmrc file pinning the Node version to at least ${MIN_NODE_MAJOR_VERSION} (for example "${MIN_NODE_MAJOR_VERSION}")`;
+        return {
+            severity: "error",
+            reason: `missing a .nvmrc file pinning the Node version to at least ${MIN_NODE_MAJOR_VERSION} (for example "${RECOMMENDED_NODE_MAJOR_VERSION}")`,
+        };
     }
     const version = firstNonEmptyLine(resolved.content);
     const major = parseNodeMajorVersion(version);
     if (major === undefined) {
-        return `${resolved.relativePath} must pin a numeric Node version of at least ${MIN_NODE_MAJOR_VERSION} (nvm aliases such as "lts/*" or "node" are not allowed), found: "${version || "<empty>"}"`;
+        return {
+            severity: "error",
+            reason: `${resolved.relativePath} must pin a numeric Node version of at least ${MIN_NODE_MAJOR_VERSION} (nvm aliases such as "lts/*" or "node" are not allowed), found: "${version || "<empty>"}"`,
+        };
     }
     if (major < MIN_NODE_MAJOR_VERSION) {
-        return `${resolved.relativePath} pins Node ${version} but the minimum is ${MIN_NODE_MAJOR_VERSION}`;
+        return {
+            severity: "error",
+            reason: `${resolved.relativePath} pins Node ${version} but the minimum is ${MIN_NODE_MAJOR_VERSION}`,
+        };
+    }
+    if (major < RECOMMENDED_NODE_MAJOR_VERSION) {
+        return {
+            severity: "warning",
+            reason: `${resolved.relativePath} pins Node ${version}; the recommended minimum is ${RECOMMENDED_NODE_MAJOR_VERSION}`,
+        };
     }
     return undefined;
 };
 const validateNpmrc = async (rootPath, boundaryDirectory) => {
     const resolved = await readFileUpwards(rootPath, boundaryDirectory, ".npmrc");
     if (!resolved) {
-        return `missing a .npmrc file with "min-release-age=${MIN_DEPENDENCY_AGE_DAYS}" (requires npm v11.10+)`;
+        return {
+            severity: "error",
+            reason: `missing a .npmrc file with "min-release-age=${MIN_DEPENDENCY_AGE_DAYS}" (requires npm v${MIN_NPM_VERSION}+)`,
+        };
     }
     const rawValue = parseMinReleaseAge(resolved.content);
     if (rawValue === undefined) {
-        return `${resolved.relativePath} must set "min-release-age" to at least ${MIN_DEPENDENCY_AGE_DAYS}, but the setting is not present`;
+        return {
+            severity: "error",
+            reason: `${resolved.relativePath} must set "min-release-age" to at least ${MIN_DEPENDENCY_AGE_DAYS}, but the setting is not present (requires npm v${MIN_NPM_VERSION}+)`,
+        };
     }
     const days = Number.parseInt(rawValue, 10);
     if (Number.isNaN(days) || String(days) !== rawValue) {
-        return `${resolved.relativePath} has an invalid "min-release-age" value: "${rawValue}" (expected an integer number of days)`;
+        return {
+            severity: "error",
+            reason: `${resolved.relativePath} has an invalid "min-release-age" value: "${rawValue}" (expected an integer number of days)`,
+        };
     }
     if (days < MIN_DEPENDENCY_AGE_DAYS) {
-        return `${resolved.relativePath} sets "min-release-age=${days}" but the minimum is ${MIN_DEPENDENCY_AGE_DAYS} days`;
+        return {
+            severity: "error",
+            reason: `${resolved.relativePath} sets "min-release-age=${days}" but the minimum is ${MIN_DEPENDENCY_AGE_DAYS} days`,
+        };
     }
     return undefined;
 };
 const projectHasNodeTarget = (project) => project.targets.some((target) => target.ecosystem === "node");
 const findNodeConfigViolations = async (projects, boundaryDirectory) => {
     const nodeProjects = projects.filter(projectHasNodeTarget);
-    const violations = await Promise.all(nodeProjects.map(async (project) => {
-        const reasons = (await Promise.all([
+    const entries = await Promise.all(nodeProjects.map(async (project) => {
+        const findings = (await Promise.all([
             validateNvmrc(project.rootPath, boundaryDirectory),
             validateNpmrc(project.rootPath, boundaryDirectory),
-        ])).filter((reason) => reason !== undefined);
-        return reasons.length > 0
-            ? { reasons, relativePath: project.relativePath }
-            : undefined;
+        ])).filter((finding) => finding !== undefined);
+        return { relativePath: project.relativePath, findings };
     }));
-    return violations.filter((violation) => violation !== undefined);
+    return collectFindings(entries);
 };
 
 const SECONDS_PER_DAY = 86400;
 const MIN_COOLDOWN_SECONDS = MIN_DEPENDENCY_AGE_DAYS * SECONDS_PER_DAY;
+const MIN_PYTHON_VERSION = "3.13";
+const RECOMMENDED_PYTHON_VERSION = "3.14";
+const MIN_UV_VERSION = "0.11.5";
+const pythonVersionPattern = /^(\d+)\.(\d+)(?:\.\d+)?$/;
+const requiresPythonLowerBoundPattern = /(>=|~=|==|>)\s*(\d+)\.(\d+)/;
+const versionRank = (major, minor) => major * 1000 + minor;
+const rankFromVersion = (value) => {
+    const [major, minor] = value.split(".");
+    return versionRank(Number.parseInt(major, 10), Number.parseInt(minor, 10));
+};
+const minPythonRank = rankFromVersion(MIN_PYTHON_VERSION);
+const recommendedPythonRank = rankFromVersion(RECOMMENDED_PYTHON_VERSION);
+const classifyPythonVersion = (major, minor, subject) => {
+    const rank = versionRank(major, minor);
+    if (rank < minPythonRank) {
+        return {
+            severity: "error",
+            reason: `${subject} but the minimum is ${MIN_PYTHON_VERSION}`,
+        };
+    }
+    if (rank < recommendedPythonRank) {
+        return {
+            severity: "warning",
+            reason: `${subject}; the recommended minimum is ${RECOMMENDED_PYTHON_VERSION}`,
+        };
+    }
+    return undefined;
+};
 const unitSeconds = {
     s: 1,
     sec: 1,
@@ -29632,10 +29701,10 @@ const resolveExcludeNewer = async (rootPath, boundaryDirectory) => {
 const validateUvCooldown = async (rootPath, boundaryDirectory) => {
     const resolved = await resolveExcludeNewer(rootPath, boundaryDirectory);
     if (!resolved) {
-        return `missing a uv dependency cooldown: set "exclude-newer" to at least "${MIN_DEPENDENCY_AGE_DAYS} days" under [tool.uv] in pyproject.toml or in uv.toml`;
+        return `missing a uv dependency cooldown: set "exclude-newer" to at least "${MIN_DEPENDENCY_AGE_DAYS} days" under [tool.uv] in pyproject.toml or in uv.toml (duration cooldowns require uv ${MIN_UV_VERSION}+)`;
     }
     if (/^\d{4}-\d{2}-\d{2}/.test(resolved.value)) {
-        return `${resolved.relativePath} sets "exclude-newer" to a fixed date ("${resolved.value}"); use a duration such as "${MIN_DEPENDENCY_AGE_DAYS} days" for a rolling cooldown`;
+        return `${resolved.relativePath} sets "exclude-newer" to a fixed date ("${resolved.value}"); use a duration such as "${MIN_DEPENDENCY_AGE_DAYS} days" for a rolling cooldown (requires uv ${MIN_UV_VERSION}+)`;
     }
     const seconds = durationToSeconds(resolved.value);
     if (seconds === undefined) {
@@ -29741,16 +29810,77 @@ const validateCooldown = async (rootPath, boundaryDirectory) => {
     }
     return validateUvCooldown(rootPath, boundaryDirectory);
 };
+const validatePythonVersionFile = async (rootPath, boundaryDirectory) => {
+    const resolved = await readFileUpwards(rootPath, boundaryDirectory, ".python-version");
+    if (!resolved) {
+        return {
+            severity: "error",
+            reason: `missing a .python-version file pinning the Python version to at least ${MIN_PYTHON_VERSION} (for example "${RECOMMENDED_PYTHON_VERSION}")`,
+        };
+    }
+    const version = firstNonEmptyLine(resolved.content);
+    const match = pythonVersionPattern.exec(version);
+    if (!match) {
+        return {
+            severity: "error",
+            reason: `${resolved.relativePath} must pin a numeric Python version of at least ${MIN_PYTHON_VERSION} (aliases such as "pypy3.10" are not allowed), found: "${version || "<empty>"}"`,
+        };
+    }
+    return classifyPythonVersion(Number.parseInt(match[1], 10), Number.parseInt(match[2], 10), `${resolved.relativePath} pins Python ${version}`);
+};
+const requiresPythonPattern = /^\s*requires-python\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))/m;
+const readRequiresPython = (body) => {
+    if (body === undefined) {
+        return undefined;
+    }
+    const match = requiresPythonPattern.exec(body);
+    if (!match) {
+        return undefined;
+    }
+    return (match[1] ?? match[2] ?? match[3])?.trim();
+};
+const validateRequiresPython = async (rootPath, boundaryDirectory) => {
+    const directories = ancestorChain(rootPath, boundaryDirectory);
+    for (const directory of directories) {
+        const pyproject = await readFileIfExists(path$1.join(directory, "pyproject.toml"));
+        if (pyproject === undefined) {
+            continue;
+        }
+        const value = readRequiresPython(tableBody(pyproject, "project"));
+        if (value === undefined) {
+            continue;
+        }
+        const relativePath = path$1.relative(boundaryDirectory, path$1.join(directory, "pyproject.toml")) || "pyproject.toml";
+        const match = requiresPythonLowerBoundPattern.exec(value);
+        if (!match) {
+            return {
+                severity: "error",
+                reason: `${relativePath} has an unparseable "requires-python": "${value}"`,
+            };
+        }
+        return classifyPythonVersion(Number.parseInt(match[2], 10), Number.parseInt(match[3], 10), `${relativePath} sets requires-python "${value}"`);
+    }
+    return undefined;
+};
 const projectHasPythonTarget = (project) => project.targets.some((target) => target.ecosystem === "python");
 const findPythonConfigViolations = async (projects, boundaryDirectory) => {
     const pythonProjects = projects.filter(projectHasPythonTarget);
-    const violations = await Promise.all(pythonProjects.map(async (project) => {
-        const reason = await validateCooldown(project.rootPath, boundaryDirectory);
-        return reason === undefined
-            ? undefined
-            : { reasons: [reason], relativePath: project.relativePath };
+    const entries = await Promise.all(pythonProjects.map(async (project) => {
+        const [cooldownReason, versionFileFinding, requiresPythonFinding] = await Promise.all([
+            validateCooldown(project.rootPath, boundaryDirectory),
+            validatePythonVersionFile(project.rootPath, boundaryDirectory),
+            validateRequiresPython(project.rootPath, boundaryDirectory),
+        ]);
+        const findings = [
+            cooldownReason === undefined
+                ? undefined
+                : { severity: "error", reason: cooldownReason },
+            versionFileFinding,
+            requiresPythonFinding,
+        ].filter((finding) => finding !== undefined);
+        return { relativePath: project.relativePath, findings };
     }));
-    return violations.filter((violation) => violation !== undefined);
+    return collectFindings(entries);
 };
 
 const isReleasePleaseMetadataFile = (filename) => filename === ".release-please-manifest.json" ||
@@ -30308,11 +30438,18 @@ const main = async () => {
         return;
     }
     const configBoundary = await resolveGitRoot(workingDirectory, execCommand$1).catch(() => workingDirectory);
-    const [nodeConfigViolations, pythonConfigViolations] = await Promise.all([
+    const [nodeConfig, pythonConfig] = await Promise.all([
         findNodeConfigViolations(selectedProjects, configBoundary),
         findPythonConfigViolations(selectedProjects, configBoundary),
     ]);
-    const configViolations = [...nodeConfigViolations, ...pythonConfigViolations];
+    const configWarnings = [...nodeConfig.warnings, ...pythonConfig.warnings];
+    for (const warning$1 of configWarnings) {
+        warning(`${warning$1.relativePath}: ${warning$1.reasons.join("; ")}`);
+    }
+    const configViolations = [
+        ...nodeConfig.violations,
+        ...pythonConfig.violations,
+    ];
     if (configViolations.length > 0) {
         const detail = configViolations
             .map((violation) => `${violation.relativePath}: ${violation.reasons.join("; ")}`)

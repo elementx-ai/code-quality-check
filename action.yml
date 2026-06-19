@@ -28,7 +28,7 @@ inputs:
   python-version:
     description: Python version to install when Python projects are detected.
     required: false
-    default: "3.12"
+    default: "3.14"
   uv-version:
     description: Optional uv version to install when Python projects are detected.
     required: false
