@@ -19,15 +19,21 @@ const MIN_COOLDOWN_SECONDS = MIN_DEPENDENCY_AGE_DAYS * SECONDS_PER_DAY;
 
 export const MIN_PYTHON_VERSION = "3.13";
 export const RECOMMENDED_PYTHON_VERSION = "3.14";
-
-const minPythonRank = 3 * 1000 + 13;
-const recommendedPythonRank = 3 * 1000 + 14;
+export const MIN_UV_VERSION = "0.11.5";
 
 const pythonVersionPattern = /^(\d+)\.(\d+)(?:\.\d+)?$/;
 const requiresPythonLowerBoundPattern = /(>=|~=|==|>)\s*(\d+)\.(\d+)/;
 
 const versionRank = (major: number, minor: number): number =>
   major * 1000 + minor;
+
+const rankFromVersion = (value: string): number => {
+  const [major, minor] = value.split(".");
+  return versionRank(Number.parseInt(major, 10), Number.parseInt(minor, 10));
+};
+
+const minPythonRank = rankFromVersion(MIN_PYTHON_VERSION);
+const recommendedPythonRank = rankFromVersion(RECOMMENDED_PYTHON_VERSION);
 
 const classifyPythonVersion = (
   major: number,
@@ -250,11 +256,11 @@ const validateUvCooldown = async (
 ): Promise<string | undefined> => {
   const resolved = await resolveExcludeNewer(rootPath, boundaryDirectory);
   if (!resolved) {
-    return `missing a uv dependency cooldown: set "exclude-newer" to at least "${MIN_DEPENDENCY_AGE_DAYS} days" under [tool.uv] in pyproject.toml or in uv.toml`;
+    return `missing a uv dependency cooldown: set "exclude-newer" to at least "${MIN_DEPENDENCY_AGE_DAYS} days" under [tool.uv] in pyproject.toml or in uv.toml (duration cooldowns require uv ${MIN_UV_VERSION}+)`;
   }
 
   if (/^\d{4}-\d{2}-\d{2}/.test(resolved.value)) {
-    return `${resolved.relativePath} sets "exclude-newer" to a fixed date ("${resolved.value}"); use a duration such as "${MIN_DEPENDENCY_AGE_DAYS} days" for a rolling cooldown`;
+    return `${resolved.relativePath} sets "exclude-newer" to a fixed date ("${resolved.value}"); use a duration such as "${MIN_DEPENDENCY_AGE_DAYS} days" for a rolling cooldown (requires uv ${MIN_UV_VERSION}+)`;
   }
 
   const seconds = durationToSeconds(resolved.value);

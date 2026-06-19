@@ -8,6 +8,7 @@ import { MIN_DEPENDENCY_AGE_DAYS } from "../src/helpers/config-files.js";
 import {
   findPythonConfigViolations,
   MIN_PYTHON_VERSION,
+  MIN_UV_VERSION,
   RECOMMENDED_PYTHON_VERSION,
 } from "../src/helpers/python-config.js";
 
@@ -111,6 +112,9 @@ test("flags a missing cooldown", async () => {
 
     assert.equal(violations.length, 1);
     assert.ok(violations[0].reasons.some((r) => r.includes("exclude-newer")));
+    assert.ok(
+      violations[0].reasons.some((r) => r.includes(`uv ${MIN_UV_VERSION}`)),
+    );
   });
 });
 
@@ -462,6 +466,26 @@ test("accepts a patch-level .python-version above the recommended", async () => 
 
     const { violations, warnings } = await findPythonConfigViolations(
       [pythonProject(dir)],
+      dir,
+    );
+
+    assert.deepEqual(violations, []);
+    assert.deepEqual(warnings, []);
+  });
+});
+
+test("resolves .python-version from an ancestor directory in a monorepo", async () => {
+  await withTempDir(async (dir) => {
+    await writeVersionPin(dir);
+    const packageDir = path.join(dir, "packages", "api");
+    await fs.mkdir(packageDir, { recursive: true });
+    await fs.writeFile(
+      path.join(packageDir, "pyproject.toml"),
+      pyprojectWith("1 week"),
+    );
+
+    const { violations, warnings } = await findPythonConfigViolations(
+      [pythonProject(packageDir, "packages/api")],
       dir,
     );
 

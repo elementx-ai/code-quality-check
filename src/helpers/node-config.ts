@@ -11,6 +11,7 @@ import { Project } from "../types.js";
 
 export const MIN_NODE_MAJOR_VERSION = 22;
 export const RECOMMENDED_NODE_MAJOR_VERSION = 24;
+export const MIN_NPM_VERSION = "11.10";
 
 const nodeVersionPattern = /^v?(\d+)(?:\.\d+){0,2}$/;
 
@@ -75,7 +76,7 @@ const validateNpmrc = async (
   if (!resolved) {
     return {
       severity: "error",
-      reason: `missing a .npmrc file with "min-release-age=${MIN_DEPENDENCY_AGE_DAYS}" (requires npm v11.10+)`,
+      reason: `missing a .npmrc file with "min-release-age=${MIN_DEPENDENCY_AGE_DAYS}" (requires npm v${MIN_NPM_VERSION}+)`,
     };
   }
 
@@ -83,7 +84,7 @@ const validateNpmrc = async (
   if (rawValue === undefined) {
     return {
       severity: "error",
-      reason: `${resolved.relativePath} must set "min-release-age" to at least ${MIN_DEPENDENCY_AGE_DAYS}, but the setting is not present`,
+      reason: `${resolved.relativePath} must set "min-release-age" to at least ${MIN_DEPENDENCY_AGE_DAYS}, but the setting is not present (requires npm v${MIN_NPM_VERSION}+)`,
     };
   }
 

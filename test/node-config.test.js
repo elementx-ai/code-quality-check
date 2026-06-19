@@ -8,6 +8,7 @@ import { MIN_DEPENDENCY_AGE_DAYS } from "../src/helpers/config-files.js";
 import {
   findNodeConfigViolations,
   MIN_NODE_MAJOR_VERSION,
+  MIN_NPM_VERSION,
   RECOMMENDED_NODE_MAJOR_VERSION,
 } from "../src/helpers/node-config.js";
 
@@ -176,6 +177,9 @@ test("flags a missing .npmrc", async () => {
 
     assert.equal(violations.length, 1);
     assert.ok(violations[0].reasons.some((r) => r.includes("min-release-age")));
+    assert.ok(
+      violations[0].reasons.some((r) => r.includes(`npm v${MIN_NPM_VERSION}`)),
+    );
   });
 });
 

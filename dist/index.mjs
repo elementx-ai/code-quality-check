@@ -29448,6 +29448,7 @@ const resolveFirstParent = async (gitRoot, ref, commandExecutor) => {
 
 const MIN_NODE_MAJOR_VERSION = 22;
 const RECOMMENDED_NODE_MAJOR_VERSION = 24;
+const MIN_NPM_VERSION = "11.10";
 const nodeVersionPattern = /^v?(\d+)(?:\.\d+){0,2}$/;
 const parseNodeMajorVersion = (value) => {
     const match = nodeVersionPattern.exec(value);
@@ -29496,14 +29497,14 @@ const validateNpmrc = async (rootPath, boundaryDirectory) => {
     if (!resolved) {
         return {
             severity: "error",
-            reason: `missing a .npmrc file with "min-release-age=${MIN_DEPENDENCY_AGE_DAYS}" (requires npm v11.10+)`,
+            reason: `missing a .npmrc file with "min-release-age=${MIN_DEPENDENCY_AGE_DAYS}" (requires npm v${MIN_NPM_VERSION}+)`,
         };
     }
     const rawValue = parseMinReleaseAge(resolved.content);
     if (rawValue === undefined) {
         return {
             severity: "error",
-            reason: `${resolved.relativePath} must set "min-release-age" to at least ${MIN_DEPENDENCY_AGE_DAYS}, but the setting is not present`,
+            reason: `${resolved.relativePath} must set "min-release-age" to at least ${MIN_DEPENDENCY_AGE_DAYS}, but the setting is not present (requires npm v${MIN_NPM_VERSION}+)`,
         };
     }
     const days = Number.parseInt(rawValue, 10);
@@ -29538,11 +29539,16 @@ const SECONDS_PER_DAY = 86400;
 const MIN_COOLDOWN_SECONDS = MIN_DEPENDENCY_AGE_DAYS * SECONDS_PER_DAY;
 const MIN_PYTHON_VERSION = "3.13";
 const RECOMMENDED_PYTHON_VERSION = "3.14";
-const minPythonRank = 3 * 1000 + 13;
-const recommendedPythonRank = 3 * 1000 + 14;
+const MIN_UV_VERSION = "0.11.5";
 const pythonVersionPattern = /^(\d+)\.(\d+)(?:\.\d+)?$/;
 const requiresPythonLowerBoundPattern = /(>=|~=|==|>)\s*(\d+)\.(\d+)/;
 const versionRank = (major, minor) => major * 1000 + minor;
+const rankFromVersion = (value) => {
+    const [major, minor] = value.split(".");
+    return versionRank(Number.parseInt(major, 10), Number.parseInt(minor, 10));
+};
+const minPythonRank = rankFromVersion(MIN_PYTHON_VERSION);
+const recommendedPythonRank = rankFromVersion(RECOMMENDED_PYTHON_VERSION);
 const classifyPythonVersion = (major, minor, subject) => {
     const rank = versionRank(major, minor);
     if (rank < minPythonRank) {
@@ -29695,10 +29701,10 @@ const resolveExcludeNewer = async (rootPath, boundaryDirectory) => {
 const validateUvCooldown = async (rootPath, boundaryDirectory) => {
     const resolved = await resolveExcludeNewer(rootPath, boundaryDirectory);
     if (!resolved) {
-        return `missing a uv dependency cooldown: set "exclude-newer" to at least "${MIN_DEPENDENCY_AGE_DAYS} days" under [tool.uv] in pyproject.toml or in uv.toml`;
+        return `missing a uv dependency cooldown: set "exclude-newer" to at least "${MIN_DEPENDENCY_AGE_DAYS} days" under [tool.uv] in pyproject.toml or in uv.toml (duration cooldowns require uv ${MIN_UV_VERSION}+)`;
     }
     if (/^\d{4}-\d{2}-\d{2}/.test(resolved.value)) {
-        return `${resolved.relativePath} sets "exclude-newer" to a fixed date ("${resolved.value}"); use a duration such as "${MIN_DEPENDENCY_AGE_DAYS} days" for a rolling cooldown`;
+        return `${resolved.relativePath} sets "exclude-newer" to a fixed date ("${resolved.value}"); use a duration such as "${MIN_DEPENDENCY_AGE_DAYS} days" for a rolling cooldown (requires uv ${MIN_UV_VERSION}+)`;
     }
     const seconds = durationToSeconds(resolved.value);
     if (seconds === undefined) {
