@@ -1,6 +1,6 @@
 {
   "name": "code-quality-check",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "private": true,
   "description": "Reusable GitHub Action for discovering runnable projects and executing standard checks.",
   "main": "index.js",
