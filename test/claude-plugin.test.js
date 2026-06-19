@@ -155,6 +155,57 @@ test("flags a non-kebab-case name", async () => {
   });
 });
 
+test("passes a plugin.json with kebab-case mcpServers keys", async () => {
+  await withTempDir(async (dir) => {
+    await writePluginManifest(dir, {
+      name: "proposal-hub",
+      displayName: "Proposal Hub",
+      mcpServers: {
+        "proposal-hub": { type: "http", url: "https://example.com/mcp" },
+      },
+    });
+
+    const violations = await findClaudePluginViolations(dir);
+
+    assert.deepEqual(violations, []);
+  });
+});
+
+test("flags an mcpServers key containing an underscore", async () => {
+  await withTempDir(async (dir) => {
+    await writePluginManifest(dir, {
+      name: "proposal-hub",
+      displayName: "Proposal Hub",
+      mcpServers: {
+        Proposal_Hub: { type: "http", url: "https://example.com/mcp" },
+      },
+    });
+
+    const violations = await findClaudePluginViolations(dir);
+
+    assert.equal(violations.length, 1);
+    assert.ok(violations[0].reasons.some((r) => r.includes("mcpServers")));
+    assert.ok(violations[0].reasons.some((r) => r.includes("Proposal_Hub")));
+  });
+});
+
+test("flags an mcpServers key with spaces", async () => {
+  await withTempDir(async (dir) => {
+    await writePluginManifest(dir, {
+      name: "proposal-hub",
+      displayName: "Proposal Hub",
+      mcpServers: {
+        "Proposal Hub": { type: "http", url: "https://example.com/mcp" },
+      },
+    });
+
+    const violations = await findClaudePluginViolations(dir);
+
+    assert.equal(violations.length, 1);
+    assert.ok(violations[0].reasons.some((r) => r.includes("kebab-case")));
+  });
+});
+
 test("validates each entry in a marketplace.json", async () => {
   await withTempDir(async (dir) => {
     await writeMarketplaceManifest(dir, {
@@ -171,6 +222,56 @@ test("validates each entry in a marketplace.json", async () => {
     assert.equal(violations[0].relativePath, ".claude-plugin/marketplace.json");
     assert.ok(violations[0].reasons.some((r) => r.includes("other-plugin")));
     assert.ok(violations[0].reasons.some((r) => r.includes("Title Case")));
+  });
+});
+
+test("flags a non-kebab-case marketplace top-level name", async () => {
+  await withTempDir(async (dir) => {
+    await writeMarketplaceManifest(dir, {
+      name: "ElementX",
+      plugins: [{ name: "proposal-hub", displayName: "Proposal Hub" }],
+    });
+
+    const violations = await findClaudePluginViolations(dir);
+
+    assert.equal(violations.length, 1);
+    assert.ok(
+      violations[0].reasons.some(
+        (r) => r.includes("top-level") && r.includes("kebab-case"),
+      ),
+    );
+  });
+});
+
+test("flags a top-level displayName in marketplace.json as ignored", async () => {
+  await withTempDir(async (dir) => {
+    await writeMarketplaceManifest(dir, {
+      name: "agentdeploy",
+      displayName: "AgentDeploy",
+      plugins: [{ name: "agentdeploy", displayName: "AgentDeploy" }],
+    });
+
+    const violations = await findClaudePluginViolations(dir);
+
+    assert.equal(violations.length, 1);
+    assert.ok(
+      violations[0].reasons.some(
+        (r) => r.includes('top-level "displayName"') && r.includes("ignored"),
+      ),
+    );
+  });
+});
+
+test("passes a marketplace.json with a kebab-case top-level name and no top-level displayName", async () => {
+  await withTempDir(async (dir) => {
+    await writeMarketplaceManifest(dir, {
+      name: "elementx",
+      plugins: [{ name: "proposal-hub", displayName: "Proposal Hub" }],
+    });
+
+    const violations = await findClaudePluginViolations(dir);
+
+    assert.deepEqual(violations, []);
   });
 });
 
