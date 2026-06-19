@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.6.1...code-quality-check-v0.6.2) (2026-06-19)
+
+
+### Bug Fixes
+
+* Enforce claude plugin naming convention, minimum node version 24 ([#31](https://github.com/elementx-ai/code-quality-check/issues/31)) ([cc593cf](https://github.com/elementx-ai/code-quality-check/commit/cc593cfac1cba9b2fc11f03b38a9796d08023c98))
+
 ## [0.6.1](https://github.com/elementx-ai/code-quality-check/compare/code-quality-check-v0.6.0...code-quality-check-v0.6.1) (2026-06-16)
 
 
