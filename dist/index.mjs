@@ -28936,7 +28936,7 @@ function endGroup() {
 
 /* eslint-disable complexity */
 const terraformDirectories = new Set(["tf", "tf-global", "module"]);
-const ignoredDirectories = new Set([
+const ignoredDirectories$1 = new Set([
     ".git",
     ".hg",
     ".next",
@@ -29013,7 +29013,7 @@ const discoverProjects = async (workingDirectory, options) => {
             if (!entry.isDirectory()) {
                 continue;
             }
-            if (ignoredDirectories.has(entry.name)) {
+            if (ignoredDirectories$1.has(entry.name)) {
                 continue;
             }
             if (terraformDirectories.has(entry.name)) {
@@ -29072,7 +29072,7 @@ const hasTerraformFiles = async (directory, recursive = true) => {
             }
             if (recursive &&
                 entry.isDirectory() &&
-                !ignoredDirectories.has(entry.name)) {
+                !ignoredDirectories$1.has(entry.name)) {
                 if (await hasTerraformFiles(path$1.join(directory, entry.name))) {
                     return true;
                 }
@@ -29090,6 +29090,198 @@ const normalizeRelativePath = (from, to) => {
         return ".";
     }
     return relative.split(path$1.sep).join(path$1.posix.sep);
+};
+
+const MIN_DEPENDENCY_AGE_DAYS = 3;
+const ancestorChain = (startDir, boundaryDir) => {
+    const boundary = path$1.resolve(boundaryDir);
+    const start = path$1.resolve(startDir);
+    const relative = path$1.relative(boundary, start);
+    if (relative.startsWith("..") || path$1.isAbsolute(relative)) {
+        return [start];
+    }
+    const segments = relative === "" ? [] : relative.split(path$1.sep);
+    return [
+        boundary,
+        ...segments.map((_, index) => path$1.join(boundary, ...segments.slice(0, index + 1))),
+    ].reverse();
+};
+const readFileIfExists = async (filePath) => {
+    try {
+        return await promises$1.readFile(filePath, "utf8");
+    }
+    catch {
+        return undefined;
+    }
+};
+const fileExists = async (filePath) => {
+    try {
+        await promises$1.access(filePath);
+        return true;
+    }
+    catch {
+        return false;
+    }
+};
+const readFileUpwards = async (startDir, boundaryDir, fileName) => {
+    const candidates = ancestorChain(startDir, boundaryDir).map((directory) => path$1.join(directory, fileName));
+    for (const candidate of candidates) {
+        const content = await readFileIfExists(candidate);
+        if (content !== undefined) {
+            return {
+                content,
+                relativePath: path$1.relative(boundaryDir, candidate) || fileName,
+            };
+        }
+    }
+    return undefined;
+};
+
+const ignoredDirectories = new Set([
+    ".git",
+    ".hg",
+    ".pnpm-store",
+    ".venv",
+    ".yarn",
+    "build",
+    "coverage",
+    "dist",
+    "node_modules",
+    "out",
+    "target",
+    "venv",
+]);
+const kebabNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+// Lowercase connector words that conventional title case leaves uncapitalized
+// when they are not the first word (e.g. "Proposals of the Year").
+const minorWords = new Set([
+    "a",
+    "an",
+    "and",
+    "as",
+    "at",
+    "but",
+    "by",
+    "for",
+    "if",
+    "in",
+    "nor",
+    "of",
+    "on",
+    "or",
+    "per",
+    "the",
+    "to",
+    "via",
+    "vs",
+    "with",
+]);
+const isTitleCase = (value) => {
+    const words = value.trim().split(/\s+/);
+    if (words.length === 0 || words[0] === "") {
+        return false;
+    }
+    return words.every((word, index) => {
+        if (index > 0 && minorWords.has(word.toLowerCase())) {
+            return true;
+        }
+        return /^[A-Z0-9]/.test(word);
+    });
+};
+const validateEntry = (entry) => {
+    const reasons = [];
+    if (typeof entry.name !== "string" || !kebabNamePattern.test(entry.name)) {
+        reasons.push(`${entry.label} "name" must be a kebab-case identifier (lowercase letters, digits, and hyphens), ` +
+            `found: ${JSON.stringify(entry.name)}`);
+    }
+    if (typeof entry.displayName !== "string" ||
+        entry.displayName.trim() === "") {
+        reasons.push(`${entry.label} must set a human-readable "displayName" (Title Case, e.g. "Proposal Hub"); ` +
+            `without it the marketplace and connector UI fall back to the kebab-case "name". ` +
+            `Requires Claude Code v2.1.143+`);
+    }
+    else if (entry.displayName.includes("_")) {
+        reasons.push(`${entry.label} "displayName" must not contain underscores: ${JSON.stringify(entry.displayName)}`);
+    }
+    else if (!isTitleCase(entry.displayName)) {
+        reasons.push(`${entry.label} "displayName" must be Title Case (each word capitalized, e.g. "Proposal Hub"), ` +
+            `found: ${JSON.stringify(entry.displayName)}`);
+    }
+    return reasons;
+};
+const parseJson = (content) => {
+    try {
+        return JSON.parse(content);
+    }
+    catch {
+        return undefined;
+    }
+};
+const validatePluginManifest = async (manifestPath, relativePath) => {
+    const content = await readFileIfExists(manifestPath);
+    if (content === undefined) {
+        return undefined;
+    }
+    const parsed = parseJson(content);
+    if (parsed === undefined || typeof parsed !== "object" || parsed === null) {
+        return { reasons: ["is not valid JSON"], relativePath };
+    }
+    const manifest = parsed;
+    const reasons = validateEntry({
+        displayName: manifest.displayName,
+        label: "plugin.json",
+        name: manifest.name,
+    });
+    return reasons.length > 0 ? { reasons, relativePath } : undefined;
+};
+const validateMarketplaceManifest = async (manifestPath, relativePath) => {
+    const content = await readFileIfExists(manifestPath);
+    if (content === undefined) {
+        return undefined;
+    }
+    const parsed = parseJson(content);
+    if (parsed === undefined || typeof parsed !== "object" || parsed === null) {
+        return { reasons: ["is not valid JSON"], relativePath };
+    }
+    const plugins = parsed.plugins;
+    if (!Array.isArray(plugins)) {
+        return undefined;
+    }
+    const reasons = plugins.flatMap((plugin, index) => {
+        const entry = (plugin ?? {});
+        const identifier = typeof entry.name === "string" ? entry.name : `#${index}`;
+        return validateEntry({
+            displayName: entry.displayName,
+            label: `plugins[${identifier}]`,
+            name: entry.name,
+        });
+    });
+    return reasons.length > 0 ? { reasons, relativePath } : undefined;
+};
+const findClaudePluginDirectories = async (workingDirectory) => {
+    const walk = async (currentDirectory) => {
+        const entries = await promises$1
+            .readdir(currentDirectory, { withFileTypes: true })
+            .catch(() => []);
+        const directories = entries.filter((entry) => entry.isDirectory() && !ignoredDirectories.has(entry.name));
+        const nested = await Promise.all(directories.map(async (entry) => {
+            const childPath = path$1.join(currentDirectory, entry.name);
+            if (entry.name === ".claude-plugin") {
+                return [childPath];
+            }
+            return walk(childPath);
+        }));
+        return nested.flat();
+    };
+    return walk(workingDirectory);
+};
+const findClaudePluginViolations = async (workingDirectory) => {
+    const pluginDirectories = await findClaudePluginDirectories(workingDirectory);
+    const violations = await Promise.all(pluginDirectories.flatMap((directory) => [
+        validatePluginManifest(path$1.join(directory, "plugin.json"), path$1.relative(workingDirectory, path$1.join(directory, "plugin.json"))),
+        validateMarketplaceManifest(path$1.join(directory, "marketplace.json"), path$1.relative(workingDirectory, path$1.join(directory, "marketplace.json"))),
+    ]));
+    return violations.filter((violation) => violation !== undefined);
 };
 
 const execCommand$1 = async (commandLine, args, cwd, options) => {
@@ -29199,54 +29391,12 @@ const resolveFirstParent = async (gitRoot, ref, commandExecutor) => {
     return firstParent.trim() || undefined;
 };
 
-const MIN_DEPENDENCY_AGE_DAYS = 3;
-const ancestorChain = (startDir, boundaryDir) => {
-    const boundary = path$1.resolve(boundaryDir);
-    const start = path$1.resolve(startDir);
-    const relative = path$1.relative(boundary, start);
-    if (relative.startsWith("..") || path$1.isAbsolute(relative)) {
-        return [start];
-    }
-    const segments = relative === "" ? [] : relative.split(path$1.sep);
-    return [
-        boundary,
-        ...segments.map((_, index) => path$1.join(boundary, ...segments.slice(0, index + 1))),
-    ].reverse();
+const MIN_NODE_MAJOR_VERSION = 24;
+const nodeVersionPattern = /^v?(\d+)(?:\.\d+){0,2}$/;
+const parseNodeMajorVersion = (value) => {
+    const match = nodeVersionPattern.exec(value);
+    return match ? Number.parseInt(match[1], 10) : undefined;
 };
-const readFileIfExists = async (filePath) => {
-    try {
-        return await promises$1.readFile(filePath, "utf8");
-    }
-    catch {
-        return undefined;
-    }
-};
-const fileExists = async (filePath) => {
-    try {
-        await promises$1.access(filePath);
-        return true;
-    }
-    catch {
-        return false;
-    }
-};
-const readFileUpwards = async (startDir, boundaryDir, fileName) => {
-    const candidates = ancestorChain(startDir, boundaryDir).map((directory) => path$1.join(directory, fileName));
-    for (const candidate of candidates) {
-        const content = await readFileIfExists(candidate);
-        if (content !== undefined) {
-            return {
-                content,
-                relativePath: path$1.relative(boundaryDir, candidate) || fileName,
-            };
-        }
-    }
-    return undefined;
-};
-
-const nodeVersionPattern = /^v?\d+(?:\.\d+){0,2}$/;
-const nodeAliasPattern = /^(?:node|stable|lts\/\*|lts\/[a-z0-9._-]+)$/i;
-const isValidNodeVersion = (value) => nodeVersionPattern.test(value) || nodeAliasPattern.test(value);
 const firstNonEmptyLine = (content) => content
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -29262,11 +29412,15 @@ const parseMinReleaseAge = (content) => content
 const validateNvmrc = async (rootPath, boundaryDirectory) => {
     const resolved = await readFileUpwards(rootPath, boundaryDirectory, ".nvmrc");
     if (!resolved) {
-        return `missing a .nvmrc file pinning the Node version (for example "24")`;
+        return `missing a .nvmrc file pinning the Node version to at least ${MIN_NODE_MAJOR_VERSION} (for example "${MIN_NODE_MAJOR_VERSION}")`;
     }
     const version = firstNonEmptyLine(resolved.content);
-    if (!isValidNodeVersion(version)) {
-        return `${resolved.relativePath} must contain a valid Node version, found: "${version || "<empty>"}"`;
+    const major = parseNodeMajorVersion(version);
+    if (major === undefined) {
+        return `${resolved.relativePath} must pin a numeric Node version of at least ${MIN_NODE_MAJOR_VERSION} (nvm aliases such as "lts/*" or "node" are not allowed), found: "${version || "<empty>"}"`;
+    }
+    if (major < MIN_NODE_MAJOR_VERSION) {
+        return `${resolved.relativePath} pins Node ${version} but the minimum is ${MIN_NODE_MAJOR_VERSION}`;
     }
     return undefined;
 };
@@ -30062,6 +30216,13 @@ const main = async () => {
     if (misplacedTerraformFiles.length > 0) {
         throw new Error(`Terraform files must be placed at the repository root or in a directory named "tf" or "module". ` +
             `Found misplaced .tf file(s): ${misplacedTerraformFiles.join(", ")}`);
+    }
+    const claudePluginViolations = await findClaudePluginViolations(workingDirectory);
+    if (claudePluginViolations.length > 0) {
+        const detail = claudePluginViolations
+            .map((violation) => `${violation.relativePath}: ${violation.reasons.join("; ")}`)
+            .join("\n");
+        throw new Error(`Claude plugin naming policy violations:\n${detail}`);
     }
     const repoMode = detectRepoMode(projects);
     const projectPaths = projects.map((project) => project.relativePath);
